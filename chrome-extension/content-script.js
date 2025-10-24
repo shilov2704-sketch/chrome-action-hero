@@ -229,7 +229,8 @@ function generateXPathSelector(element) {
     const span = element.querySelector('span');
     if (span && span.textContent.trim()) {
       const text = span.textContent.trim();
-      return `xpath//*[@data-testid="${dataTestId}" and .//span[text()="${text}"]]`;
+      const tagName = element.tagName.toLowerCase();
+      return `xpath//${tagName}[@data-testid="${dataTestId}" and .//span[text()="${text}"]]`;
     }
     return `xpath//*[@data-testid="${dataTestId}"]`;
   }
@@ -432,18 +433,37 @@ async function executeStep(step, settings) {
 }
 
 function findElement(selectors) {
+  if (!Array.isArray(selectors)) return null;
+  
   for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    
     const selector = selectorArray[0];
     
     if (selector.startsWith('xpath//')) {
       const xpath = selector.replace('xpath//', '//');
-      const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-      if (result.singleNodeValue) return result.singleNodeValue;
+      try {
+        const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        if (result.singleNodeValue) return result.singleNodeValue;
+      } catch (e) {
+        console.warn('Invalid XPath:', xpath, e);
+      }
     } else if (selector.startsWith('text/')) {
       const text = selector.replace('text/', '');
       const elements = Array.from(document.querySelectorAll('*'));
       const element = elements.find(el => el.textContent?.trim() === text);
       if (element) return element;
+    } else if (selector.startsWith('pierce/')) {
+      const cssSelector = selector.replace('pierce/', '');
+      try {
+        const element = document.querySelector(cssSelector);
+        if (element) return element;
+      } catch (e) {
+        console.warn('Invalid pierce selector:', cssSelector);
+      }
+    } else if (selector.startsWith('aria/')) {
+      // Skip ARIA selectors for now as they're complex
+      continue;
     } else {
       try {
         const element = document.querySelector(selector);

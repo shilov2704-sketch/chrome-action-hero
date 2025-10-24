@@ -4,6 +4,7 @@ const state = {
   recordings: [],
   currentRecording: null,
   isRecording: false,
+  isAddingAssertion: false,
   selectedStep: null,
   selectedSelectors: ['css', 'xpath'],
   replaySettings: {
@@ -75,6 +76,20 @@ function initializeEventListeners() {
 
   // Add assertion
   document.getElementById('addAssertionBtn').addEventListener('click', addAssertion);
+  
+  // Listen for element picked
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === 'elementPicked' && state.isAddingAssertion) {
+      // Add the picked element to the last waitForElement step
+      const lastStep = state.currentRecording.steps[state.currentRecording.steps.length - 1];
+      if (lastStep && lastStep.type === 'waitForElement') {
+        lastStep.selectors = message.selectors;
+        renderStepsList();
+        updateCodePreview();
+      }
+      state.isAddingAssertion = false;
+    }
+  });
 
   // Replay settings
   document.getElementById('throttling').addEventListener('change', (e) => {
@@ -89,7 +104,8 @@ function initializeEventListeners() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const tabName = e.target.dataset.tab;
-      switchTab(tabName);
+      const parentPanel = e.target.closest('.details-panel');
+      switchTab(tabName, parentPanel);
     });
   });
 
@@ -192,30 +208,35 @@ async function activateElementPicker() {
 }
 
 // Add Assertion
-function addAssertion() {
+async function addAssertion() {
   const assertion = {
     type: 'waitForElement',
     selectors: [],
     visible: true,
-    timeout: 5000
+    timeout: 5000,
+    target: 'main'
   };
 
   state.currentRecording.steps.push(assertion);
+  state.isAddingAssertion = true;
   renderStepsList();
   updateCodePreview();
+  
+  // Activate element picker
+  await activateElementPicker();
 }
 
 // Switch Tab
-function switchTab(tabName) {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
+function switchTab(tabName, parentPanel = document) {
+  parentPanel.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
 
-  document.querySelectorAll('.tab-content').forEach(content => {
+  parentPanel.querySelectorAll('.tab-content').forEach(content => {
     content.classList.toggle('active', content.id === `${tabName}Tab`);
   });
 
-  if (tabName === 'code') {
+  if (tabName === 'code' || tabName === 'playbackCode') {
     updateCodePreview();
   }
 }
@@ -269,14 +290,26 @@ function renderStepsList() {
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
+      <button class="delete-step-btn" data-index="${index}" title="Удалить шаг">×</button>
     </div>
   `).join('');
 
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const index = parseInt(item.dataset.index);
-      selectStep(index);
+    item.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('delete-step-btn')) {
+        const index = parseInt(item.dataset.index);
+        selectStep(index);
+      }
+    });
+  });
+  
+  // Add delete handlers
+  container.querySelectorAll('.delete-step-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const index = parseInt(btn.dataset.index);
+      deleteStep(index);
     });
   });
 }
@@ -364,17 +397,32 @@ function renderPlaybackView() {
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
+      <button class="delete-step-btn" data-index="${index}" title="Удалить шаг">×</button>
     </div>
   `).join('');
 
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const index = parseInt(item.dataset.index);
-      const step = state.currentRecording.steps[index];
-      renderPlaybackStepDetails(step);
+    item.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('delete-step-btn')) {
+        const index = parseInt(item.dataset.index);
+        const step = state.currentRecording.steps[index];
+        renderPlaybackStepDetails(step);
+      }
     });
   });
+  
+  // Add delete handlers
+  container.querySelectorAll('.delete-step-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const index = parseInt(btn.dataset.index);
+      deleteStep(index);
+    });
+  });
+  
+  // Update code preview
+  updateCodePreview();
 }
 
 function renderPlaybackStepDetails(step) {
@@ -387,7 +435,11 @@ function updateCodePreview() {
   if (!state.currentRecording) return;
   
   const codePreview = document.getElementById('codePreview');
-  codePreview.textContent = JSON.stringify(state.currentRecording, null, 2);
+  const playbackCodePreview = document.getElementById('playbackCodePreview');
+  const jsonStr = JSON.stringify(state.currentRecording, null, 2);
+  
+  if (codePreview) codePreview.textContent = jsonStr;
+  if (playbackCodePreview) playbackCodePreview.textContent = jsonStr;
 }
 
 // Helper Functions
@@ -451,12 +503,38 @@ async function deleteCurrentRecording() {
 async function replayRecording(speed) {
   if (!state.currentRecording) return;
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    await chrome.tabs.sendMessage(tab.id, {
+      action: 'replayRecording',
+      recording: state.currentRecording,
+      speed: speed,
+      settings: state.replaySettings
+    });
+    
+    console.log('Replay started with speed:', speed);
+  } catch (error) {
+    console.error('Error replaying recording:', error);
+    alert('Ошибка воспроизведения. Убедитесь, что вы находитесь на правильной странице.');
+  }
+}
+
+function deleteStep(index) {
+  if (!state.currentRecording) return;
   
-  await chrome.tabs.sendMessage(tab.id, {
-    action: 'replayRecording',
-    recording: state.currentRecording,
-    speed: speed,
-    settings: state.replaySettings
-  });
+  if (confirm('Удалить этот шаг?')) {
+    state.currentRecording.steps.splice(index, 1);
+    renderStepsList();
+    updateCodePreview();
+    
+    if (state.currentView === 'playback') {
+      renderPlaybackView();
+    }
+    
+    // Save if not currently recording
+    if (!state.isRecording) {
+      saveRecordings();
+    }
+  }
 }

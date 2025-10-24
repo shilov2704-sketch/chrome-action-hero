@@ -169,13 +169,26 @@
 
       <div class="recording-content">
         <div class="steps-panel">
-          <h3>Шаги записи</h3>
+          <div class="steps-header">
+            <h3>Шаги записи</h3>
+          </div>
           <div id="playbackStepsList" class="steps-list"></div>
         </div>
 
         <div class="details-panel">
-          <div id="playbackStepDetails" class="step-details-empty">
-            <p>Выберите шаг для просмотра деталей</p>
+          <div class="panel-tabs">
+            <button class="tab-btn active" data-tab="playbackDetails">Детали</button>
+            <button class="tab-btn" data-tab="playbackCode">Show Code</button>
+          </div>
+
+          <div id="playbackDetailsTab" class="tab-content active">
+            <div id="playbackStepDetails" class="step-details-empty">
+              <p>Выберите шаг для просмотра деталей</p>
+            </div>
+          </div>
+
+          <div id="playbackCodeTab" class="tab-content">
+            <pre id="playbackCodePreview" class="code-preview"></pre>
           </div>
         </div>
       </div>
