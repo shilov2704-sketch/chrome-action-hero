@@ -10,14 +10,8 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('Background received message:', message);
   
-  // Forward messages between panel and content script
-  if (message.action === 'recordedEvent') {
-    // Event was recorded in content script, forward to panel
-    chrome.runtime.sendMessage(message);
-  } else if (message.action === 'elementPicked') {
-    // Element was picked, forward to panel
-    chrome.runtime.sendMessage(message);
-  }
+  // Do not forward messages to avoid duplication; panel listens directly.
+  // Keep here for future background logic if needed.
   
   sendResponse({ received: true });
   return true;

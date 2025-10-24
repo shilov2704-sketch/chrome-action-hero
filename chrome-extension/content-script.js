@@ -314,6 +314,11 @@ function generatePierceSelector(element) {
 }
 
 function recordEvent(event) {
+  const last = recordedEvents[recordedEvents.length - 1];
+  if (last && JSON.stringify(last) === JSON.stringify(event)) {
+    return; // avoid duplicate events
+  }
+
   recordedEvents.push(event);
   
   // Send event to panel

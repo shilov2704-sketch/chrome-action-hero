@@ -178,6 +178,9 @@ async function stopRecording() {
 
   state.isRecording = false;
   
+  // Stop listening to recorded events to avoid duplicates on next runs
+  try { chrome.runtime.onMessage.removeListener(handleRecordedEvent); } catch (e) {}
+  
   // Save recording
   state.recordings.push(state.currentRecording);
   await saveRecordings();
@@ -192,7 +195,12 @@ async function stopRecording() {
 function handleRecordedEvent(message) {
   if (message.action === 'recordedEvent' && state.isRecording) {
     const step = message.event;
-    state.currentRecording.steps.push(step);
+    const steps = state.currentRecording.steps;
+    const last = steps[steps.length - 1];
+    if (last && JSON.stringify(last) === JSON.stringify(step)) {
+      return; // ignore duplicate
+    }
+    steps.push(step);
     renderStepsList();
     updateCodePreview();
   }
