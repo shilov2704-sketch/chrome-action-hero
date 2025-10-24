@@ -140,7 +140,7 @@ async function startRecording() {
   }
 
   // Get viewport info
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = chrome.devtools.inspectedWindow.tabId;
   
   state.currentRecording = {
     id: Date.now(),
@@ -158,7 +158,7 @@ async function startRecording() {
   document.getElementById('currentRecordingName').textContent = name;
 
   // Inject content script and start recording
-  await chrome.tabs.sendMessage(tab.id, {
+  await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
     selectors: state.selectedSelectors
   });
@@ -171,9 +171,8 @@ async function startRecording() {
 async function stopRecording() {
   if (!state.isRecording) return;
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-  await chrome.tabs.sendMessage(tab.id, {
+  const tabId = chrome.devtools.inspectedWindow.tabId;
+  await chrome.tabs.sendMessage(tabId, {
     action: 'stopRecording'
   });
 
@@ -201,8 +200,8 @@ function handleRecordedEvent(message) {
 
 // Activate Element Picker
 async function activateElementPicker() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  await chrome.tabs.sendMessage(tab.id, {
+  const tabId = chrome.devtools.inspectedWindow.tabId;
+  await chrome.tabs.sendMessage(tabId, {
     action: 'activateElementPicker'
   });
 }
@@ -504,9 +503,9 @@ async function replayRecording(speed) {
   if (!state.currentRecording) return;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = chrome.devtools.inspectedWindow.tabId;
     
-    await chrome.tabs.sendMessage(tab.id, {
+    await chrome.tabs.sendMessage(tabId, {
       action: 'replayRecording',
       recording: state.currentRecording,
       speed: speed,

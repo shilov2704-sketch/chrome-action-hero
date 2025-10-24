@@ -54,7 +54,7 @@ function stopRecording() {
 }
 
 function handleClick(event) {
-  if (!isRecording) return;
+  if (!isRecording || isPickingElement) return;
 
   const target = event.target;
   const selectors = generateSelectors(target);
@@ -221,21 +221,38 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
-  // Special handling for elements with data-testid
-  const dataTestId = element.getAttribute('data-testid');
-  
-  if (dataTestId) {
-    // Check if element has text content in nested spans
-    const span = element.querySelector('span');
-    if (span && span.textContent.trim()) {
-      const text = span.textContent.trim();
-      const tagName = element.tagName.toLowerCase();
-      return `xpath//${tagName}[@data-testid="${dataTestId}" and .//span[text()="${text}"]]`;
+  // Find nearest ancestor (including self) with data-testid
+  let node = element;
+  let ancestorWithTestId = null;
+  while (node && node.nodeType === Node.ELEMENT_NODE) {
+    if (node.hasAttribute('data-testid')) {
+      ancestorWithTestId = node;
+      break;
     }
-    return `xpath//*[@data-testid="${dataTestId}"]`;
+    node = node.parentElement;
   }
 
-  // Generate standard XPath
+  if (ancestorWithTestId) {
+    const dataTestId = ancestorWithTestId.getAttribute('data-testid');
+    const tagName = ancestorWithTestId.tagName.toLowerCase();
+
+    // Try to find readable text inside a span within this ancestor
+    let text = '';
+    const span = ancestorWithTestId.querySelector('span');
+    if (span && span.textContent && span.textContent.trim()) {
+      text = span.textContent.trim();
+    }
+
+    if (text) {
+      // Custom XPath: //tag[@data-testid='...' and .//span[text()='...']]
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//span[text()='${text}']]`;
+    }
+
+    // Fallback to just data-testid
+    return `xpath//${tagName}[@data-testid='${dataTestId}']`;
+  }
+
+  // Standard XPath fallback (short path up to 5 levels)
   const path = [];
   let current = element;
 
@@ -383,11 +400,24 @@ async function replayRecording(recording, speed, settings) {
   
   const delay = speed === 'slow' ? 1000 : 100;
 
-  for (const step of recording.steps) {
+  for (let i = 0; i < recording.steps.length; i++) {
+    const step = recording.steps[i];
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
-      await executeStep(step, settings);
+      if (step.type === 'navigate') {
+        // Persist remaining steps to sessionStorage to resume after navigation
+        const remaining = recording.steps.slice(i + 1);
+        sessionStorage.setItem('qa_recorder_pending_replay', JSON.stringify({
+          steps: remaining,
+          speed,
+          settings
+        }));
+        window.location.href = step.url;
+        return; // Will resume after page load
+      } else {
+        await executeStep(step, settings);
+      }
     } catch (error) {
       console.error('Error executing step:', step, error);
     }
@@ -499,3 +529,17 @@ async function waitForNavigation() {
     }
   });
 }
+
+// Auto-resume replay after navigation if pending
+(function resumePendingReplay() {
+  try {
+    const pending = sessionStorage.getItem('qa_recorder_pending_replay');
+    if (pending) {
+      const { steps, speed, settings } = JSON.parse(pending);
+      sessionStorage.removeItem('qa_recorder_pending_replay');
+      replayRecording({ title: 'Resumed', steps }, speed, settings);
+    }
+  } catch (e) {
+    console.warn('Failed to resume pending replay', e);
+  }
+})();
