@@ -221,6 +221,24 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
+  // Check for label-input structure: label with span -> input with data-testid
+  if (element.hasAttribute('data-testid') && element.tagName.toLowerCase() === 'input') {
+    const dataTestId = element.getAttribute('data-testid');
+    
+    // Look for preceding sibling that is a label
+    let sibling = element.previousElementSibling;
+    while (sibling) {
+      if (sibling.tagName.toLowerCase() === 'label') {
+        const span = sibling.querySelector('span');
+        if (span && span.textContent && span.textContent.trim()) {
+          const text = span.textContent.trim();
+          return `xpath//label[span[text()='${text}']]/following-sibling::input[@data-testid='${dataTestId}']`;
+        }
+      }
+      sibling = sibling.previousElementSibling;
+    }
+  }
+
   // Find nearest ancestor (including self) with data-testid
   let node = element;
   let ancestorWithTestId = null;
