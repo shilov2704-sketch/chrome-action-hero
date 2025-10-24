@@ -77,7 +77,7 @@ function initializeEventListeners() {
   // Add assertion
   document.getElementById('addAssertionBtn').addEventListener('click', addAssertion);
   
-  // Listen for element picked
+  // Listen for element picked and replay status
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'elementPicked' && state.isAddingAssertion) {
       // Add the picked element to the last waitForElement step
@@ -92,6 +92,11 @@ function initializeEventListeners() {
         updateCodePreview();
       }
       state.isAddingAssertion = false;
+    }
+    
+    // Handle replay step status updates
+    if (message.action === 'replayStepStatus') {
+      updateStepStatus(message.stepIndex, message.status, message.error);
     }
   });
 
@@ -402,10 +407,11 @@ function renderPlaybackView() {
   
   const container = document.getElementById('playbackStepsList');
   container.innerHTML = state.currentRecording.steps.map((step, index) => `
-    <div class="step-item" data-index="${index}">
+    <div class="step-item" data-index="${index}" data-step-id="step-${index}">
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
+      <div class="step-status-icon"></div>
       <button class="delete-step-btn" data-index="${index}" title="Удалить шаг">×</button>
     </div>
   `).join('');
@@ -544,6 +550,26 @@ function deleteStep(index) {
     // Save if not currently recording
     if (!state.isRecording) {
       saveRecordings();
+    }
+  }
+}
+
+function updateStepStatus(stepIndex, status, error) {
+  const stepElement = document.querySelector(`[data-step-id="step-${stepIndex}"]`);
+  if (!stepElement) return;
+  
+  // Remove all previous status classes
+  stepElement.classList.remove('step-executing', 'step-success', 'step-error');
+  
+  // Add appropriate status class
+  if (status === 'executing') {
+    stepElement.classList.add('step-executing');
+  } else if (status === 'success') {
+    stepElement.classList.add('step-success');
+  } else if (status === 'error') {
+    stepElement.classList.add('step-error');
+    if (error) {
+      stepElement.title = `Ошибка: ${error}`;
     }
   }
 }

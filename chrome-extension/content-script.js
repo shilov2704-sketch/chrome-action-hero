@@ -454,6 +454,14 @@ async function replayRecording(recording, speed, settings) {
 
   for (let i = 0; i < recording.steps.length; i++) {
     const step = recording.steps[i];
+    
+    // Notify panel that this step is executing
+    chrome.runtime.sendMessage({
+      action: 'replayStepStatus',
+      stepIndex: i,
+      status: 'executing'
+    });
+    
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
@@ -463,15 +471,31 @@ async function replayRecording(recording, speed, settings) {
         sessionStorage.setItem('qa_recorder_pending_replay', JSON.stringify({
           steps: remaining,
           speed,
-          settings
+          settings,
+          currentIndex: i
         }));
         window.location.href = step.url;
         return; // Will resume after page load
       } else {
         await executeStep(step, settings);
       }
+      
+      // Notify panel that this step succeeded
+      chrome.runtime.sendMessage({
+        action: 'replayStepStatus',
+        stepIndex: i,
+        status: 'success'
+      });
     } catch (error) {
       console.error('Error executing step:', step, error);
+      
+      // Notify panel that this step failed
+      chrome.runtime.sendMessage({
+        action: 'replayStepStatus',
+        stepIndex: i,
+        status: 'error',
+        error: error.message
+      });
     }
   }
 

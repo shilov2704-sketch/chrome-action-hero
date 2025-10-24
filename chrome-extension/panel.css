@@ -353,6 +353,44 @@ body {
   border-color: var(--accent-primary);
 }
 
+.step-item.step-executing {
+  background: #fff9c4;
+  border-color: var(--warning);
+  animation: executing-pulse 1.5s infinite;
+}
+
+.step-item.step-success {
+  background: #e6f4ea;
+  border-color: var(--success);
+}
+
+.step-item.step-error {
+  background: #fce8e6;
+  border-color: var(--danger);
+}
+
+@keyframes executing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.step-status-icon {
+  font-size: 14px;
+  margin-left: auto;
+}
+
+.step-item.step-executing .step-status-icon::before {
+  content: '⏳';
+}
+
+.step-item.step-success .step-status-icon::before {
+  content: '✅';
+}
+
+.step-item.step-error .step-status-icon::before {
+  content: '❌';
+}
+
 .step-number {
   display: flex;
   align-items: center;
