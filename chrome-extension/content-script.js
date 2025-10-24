@@ -221,8 +221,8 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
-  // Check for label-input structure: label with span -> input with data-testid
-  if (element.hasAttribute('data-testid') && element.tagName.toLowerCase() === 'input') {
+  // Check for label-input/textarea structure: label with span -> input/textarea with data-testid
+  if (element.hasAttribute('data-testid') && (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea')) {
     const dataTestId = element.getAttribute('data-testid');
     
     // Look for preceding sibling that is a label
@@ -232,10 +232,25 @@ function generateXPathSelector(element) {
         const span = sibling.querySelector('span');
         if (span && span.textContent && span.textContent.trim()) {
           const text = span.textContent.trim();
-          return `xpath//label[span[text()='${text}']]/following-sibling::input[@data-testid='${dataTestId}']`;
+          return `xpath//label[span[text()='${text}']]/following-sibling::*[@data-testid='${dataTestId}']`;
         }
       }
       sibling = sibling.previousElementSibling;
+    }
+  }
+
+  // Check for li/div structure: li > div with data-testid and nested span
+  if (element.hasAttribute('data-testid')) {
+    const dataTestId = element.getAttribute('data-testid');
+    const tagName = element.tagName.toLowerCase();
+    
+    // Check if this is a div with parent li
+    if (tagName === 'div' && element.parentElement && element.parentElement.tagName.toLowerCase() === 'li') {
+      const span = element.querySelector('span');
+      if (span && span.textContent && span.textContent.trim()) {
+        const text = span.textContent.trim();
+        return `xpath//li/div[@data-testid='${dataTestId}' and .//span[text()='${text}']]`;
+      }
     }
   }
 
@@ -337,6 +352,12 @@ function recordEvent(event) {
     return; // avoid duplicate events
   }
 
+  // Filter out keyDown/keyUp events if there's a corresponding change event coming
+  if (event.type === 'keyDown' || event.type === 'keyUp') {
+    // Don't record individual keyDown/keyUp events - wait for change event instead
+    return;
+  }
+
   recordedEvents.push(event);
   
   // Send event to panel
@@ -399,10 +420,17 @@ function activateElementPicker() {
       const selectors = generateSelectors(currentElement);
       console.log('Selected element selectors:', selectors);
       
-      // You can send this to the panel or add it to current step
+      // Get element value if it's an input/textarea
+      let value = null;
+      if (currentElement.tagName.toLowerCase() === 'input' || currentElement.tagName.toLowerCase() === 'textarea') {
+        value = currentElement.value;
+      }
+      
+      // Send to panel with value
       chrome.runtime.sendMessage({
         action: 'elementPicked',
-        selectors: selectors
+        selectors: selectors,
+        value: value
       });
     }
 
@@ -480,7 +508,14 @@ async function executeStep(step, settings) {
       break;
 
     case 'waitForElement':
-      await waitForElement(step.selectors, settings.timeout || 5000);
+      const element = await waitForElement(step.selectors, settings.timeout || 5000);
+      // If value assertion is present, verify it
+      if (element && step.value !== undefined) {
+        const actualValue = element.value || element.textContent;
+        if (actualValue !== step.value) {
+          throw new Error(`Value assertion failed. Expected: "${step.value}", Actual: "${actualValue}"`);
+        }
+      }
       break;
   }
 }

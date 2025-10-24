@@ -84,6 +84,10 @@ function initializeEventListeners() {
       const lastStep = state.currentRecording.steps[state.currentRecording.steps.length - 1];
       if (lastStep && lastStep.type === 'waitForElement') {
         lastStep.selectors = message.selectors;
+        // Add value assertion if element has a value
+        if (message.value) {
+          lastStep.value = message.value;
+        }
         renderStepsList();
         updateCodePreview();
       }
@@ -115,12 +119,10 @@ function initializeEventListeners() {
   // Delete recording
   document.getElementById('deleteRecordingBtn').addEventListener('click', deleteCurrentRecording);
 
-  // Replay buttons
-  document.querySelectorAll('.dropdown-item[data-speed]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const speed = e.target.dataset.speed;
-      replayRecording(speed);
-    });
+  // Replay button
+  document.getElementById('replayBtn').addEventListener('click', () => {
+    const speed = document.getElementById('replaySpeed').value;
+    replayRecording(speed);
   });
 }
 

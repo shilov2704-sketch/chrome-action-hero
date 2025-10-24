@@ -149,15 +149,13 @@
         </button>
         <h1 id="playbackRecordingName">Воспроизведение</h1>
         <div class="header-actions">
-          <div class="dropdown">
-            <button id="replayBtn" class="btn btn-primary">
-              <span class="icon">▶️</span> Replay
-            </button>
-            <div class="dropdown-content">
-              <button class="dropdown-item" data-speed="slow">Slow</button>
-              <button class="dropdown-item" data-speed="normal">Normal Speed</button>
-            </div>
-          </div>
+          <select id="replaySpeed" class="input" style="width: auto; margin-right: 10px;">
+            <option value="normal">Normal Speed</option>
+            <option value="slow">Slow</option>
+          </select>
+          <button id="replayBtn" class="btn btn-primary">
+            <span class="icon">▶️</span> Replay
+          </button>
           <button id="exportJsonBtn" class="btn btn-secondary">
             <span class="icon">💾</span> Экспорт JSON
           </button>
