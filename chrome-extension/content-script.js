@@ -348,13 +348,14 @@ function generatePierceSelector(element) {
 
 function recordEvent(event) {
   const last = recordedEvents[recordedEvents.length - 1];
-  if (last && JSON.stringify(last) === JSON.stringify(event)) {
-    return; // avoid duplicate events
-  }
-
-  // Filter out keyDown/keyUp events if there's a corresponding change event coming
+  
+  // Filter out keyDown/keyUp events - we only need change events for text input
   if (event.type === 'keyDown' || event.type === 'keyUp') {
-    // Don't record individual keyDown/keyUp events - wait for change event instead
+    return;
+  }
+  
+  // Avoid duplicate events
+  if (last && JSON.stringify(last) === JSON.stringify(event)) {
     return;
   }
 
