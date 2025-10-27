@@ -261,8 +261,32 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
-  // Exclude SVG elements - XPath doesn't work well with SVG
+  // Handle SVG elements - find parent with data-testid
   if (element.tagName.toLowerCase() === 'svg') {
+    // Find nearest parent with data-testid
+    let parent = element.parentElement;
+    while (parent) {
+      if (parent.hasAttribute('data-testid')) {
+        const parentTestId = parent.getAttribute('data-testid');
+        const parentTagName = parent.tagName.toLowerCase();
+        
+        // Check if this SVG has its own data-testid
+        if (element.hasAttribute('data-testid')) {
+          const svgTestId = element.getAttribute('data-testid');
+          return `xpath//${parentTagName}[@data-testid='${parentTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
+        }
+        
+        // If SVG doesn't have testid, try to find any SVG child with testid
+        const svgWithTestId = parent.querySelector('svg[data-testid]');
+        if (svgWithTestId) {
+          const svgTestId = svgWithTestId.getAttribute('data-testid');
+          return `xpath//${parentTagName}[@data-testid='${parentTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
+        }
+        
+        break;
+      }
+      parent = parent.parentElement;
+    }
     return null;
   }
 
@@ -280,7 +304,11 @@ function generateXPathSelector(element) {
       // 1) label[for] association
       if (element.id) {
         const byFor = document.querySelector(`label[for='${element.id}']`);
-        const labelText = byFor?.innerText?.trim();
+        let labelText = byFor?.innerText?.trim();
+        // Remove trailing asterisk if present
+        if (labelText && labelText.endsWith('*')) {
+          labelText = labelText.slice(0, -1).trim();
+        }
         if (labelText) {
           return `xpath//label[*[normalize-space(text())='${labelText}']]/following-sibling::${tagName}[@data-testid='${dataTestId}']`;
         }
@@ -290,7 +318,11 @@ function generateXPathSelector(element) {
       let sibling = element.previousElementSibling;
       while (sibling) {
         if (sibling.tagName.toLowerCase() === 'label') {
-          const labelText = sibling.innerText?.trim();
+          let labelText = sibling.innerText?.trim();
+          // Remove trailing asterisk if present
+          if (labelText && labelText.endsWith('*')) {
+            labelText = labelText.slice(0, -1).trim();
+          }
           if (labelText) {
             return `xpath//label[*[normalize-space(text())='${labelText}']]/following-sibling::${tagName}[@data-testid='${dataTestId}']`;
           }
@@ -300,17 +332,38 @@ function generateXPathSelector(element) {
     }
   }
 
-  // Check for li/div structure: li > div with data-testid and nested text element
+  // Check for div/li structure with data-testid and nested text element
   if (element.hasAttribute('data-testid')) {
     const dataTestId = element.getAttribute('data-testid');
     const tagName = element.tagName.toLowerCase();
 
-    if (tagName === 'div' && element.parentElement && element.parentElement.tagName.toLowerCase() === 'li') {
-      // Try to find any descendant with own text
-      const anyWithText = Array.from(element.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
+    // Handle div with data-testid that contains text (not form elements)
+    if (tagName === 'div') {
+      // Check if it's inside li
+      if (element.parentElement && element.parentElement.tagName.toLowerCase() === 'li') {
+        // Try to find any descendant with own text
+        const anyWithText = Array.from(element.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
+        if (anyWithText) {
+          const text = anyWithText.textContent.trim();
+          return `xpath//li/div[@data-testid='${dataTestId}' and .//*[normalize-space(text())='${text}']]`;
+        }
+      }
+      
+      // Check if div contains text elements (generic case)
+      const anyWithText = Array.from(element.querySelectorAll('*')).find(n => {
+        // Only consider elements with direct text content
+        const hasText = n.childNodes && Array.from(n.childNodes).some(child => 
+          child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+        );
+        return hasText;
+      });
+      
       if (anyWithText) {
         const text = anyWithText.textContent.trim();
-        return `xpath//li/div[@data-testid='${dataTestId}' and .//*[text()='${text}']]`;
+        // Only create this XPath if it's not a form-related div (already handled above)
+        if (text && !element.previousElementSibling || element.previousElementSibling.tagName.toLowerCase() !== 'label') {
+          return `xpath//div[@data-testid='${dataTestId}' and .//*[normalize-space(text())='${text}']]`;
+        }
       }
     }
   }
