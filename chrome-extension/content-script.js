@@ -261,35 +261,52 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
-  // Check for label-input/textarea structure: label with span -> input/textarea with data-testid
-  if (element.hasAttribute('data-testid') && (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea')) {
+  // Prefer stable attributes first
+  if (element.id) {
+    return `xpath//*[@id='${element.id}']`;
+  }
+
+  // Handle input/textarea associated with a label and data-testid
+  if (
+    element.hasAttribute('data-testid') &&
+    (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea')
+  ) {
     const dataTestId = element.getAttribute('data-testid');
-    
-    // Look for preceding sibling that is a label
+
+    // 1) label[for] association
+    if (element.id) {
+      const byFor = document.querySelector(`label[for='${element.id}']`);
+      const labelText = byFor?.innerText?.trim();
+      if (labelText) {
+        // Use * instead of span for robustness
+        return `xpath//label[*[text()='${labelText}']]/following-sibling::*[@data-testid='${dataTestId}']`;
+      }
+    }
+
+    // 2) Previous label siblings up the chain
     let sibling = element.previousElementSibling;
     while (sibling) {
       if (sibling.tagName.toLowerCase() === 'label') {
-        const span = sibling.querySelector('span');
-        if (span && span.textContent && span.textContent.trim()) {
-          const text = span.textContent.trim();
-          return `xpath//label[span[text()='${text}']]/following-sibling::*[@data-testid='${dataTestId}']`;
+        const labelText = sibling.innerText?.trim();
+        if (labelText) {
+          return `xpath//label[*[text()='${labelText}']]/following-sibling::*[@data-testid='${dataTestId}']`;
         }
       }
       sibling = sibling.previousElementSibling;
     }
   }
 
-  // Check for li/div structure: li > div with data-testid and nested span
+  // Check for li/div structure: li > div with data-testid and nested text element
   if (element.hasAttribute('data-testid')) {
     const dataTestId = element.getAttribute('data-testid');
     const tagName = element.tagName.toLowerCase();
-    
-    // Check if this is a div with parent li
+
     if (tagName === 'div' && element.parentElement && element.parentElement.tagName.toLowerCase() === 'li') {
-      const span = element.querySelector('span');
-      if (span && span.textContent && span.textContent.trim()) {
-        const text = span.textContent.trim();
-        return `xpath//li/div[@data-testid='${dataTestId}' and .//span[text()='${text}']]`;
+      // Try to find any descendant with own text
+      const anyWithText = Array.from(element.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
+      if (anyWithText) {
+        const text = anyWithText.textContent.trim();
+        return `xpath//li/div[@data-testid='${dataTestId}' and .//*[text()='${text}']]`;
       }
     }
   }
@@ -309,16 +326,16 @@ function generateXPathSelector(element) {
     const dataTestId = ancestorWithTestId.getAttribute('data-testid');
     const tagName = ancestorWithTestId.tagName.toLowerCase();
 
-    // Try to find readable text inside a span within this ancestor
+    // Try to find readable text inside within this ancestor
     let text = '';
-    const span = ancestorWithTestId.querySelector('span');
-    if (span && span.textContent && span.textContent.trim()) {
-      text = span.textContent.trim();
+    const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
+    if (anyWithText) {
+      text = anyWithText.textContent.trim();
     }
 
     if (text) {
-      // Custom XPath: //tag[@data-testid='...' and .//span[text()='...']]
-      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//span[text()='${text}']]`;
+      // Use * instead of span for robustness
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[text()='${text}']]`;
     }
 
     // Fallback to just data-testid
@@ -328,24 +345,19 @@ function generateXPathSelector(element) {
   // Standard XPath fallback (short path up to 5 levels)
   const path = [];
   let current = element;
-
   while (current && current.nodeType === Node.ELEMENT_NODE) {
     let index = 1;
     let sibling = current.previousSibling;
-
     while (sibling) {
       if (sibling.nodeType === Node.ELEMENT_NODE && sibling.tagName === current.tagName) {
         index++;
       }
       sibling = sibling.previousSibling;
     }
-
     const tagName = current.tagName.toLowerCase();
     const pathIndex = index > 1 ? `[${index}]` : '';
     path.unshift(`${tagName}${pathIndex}`);
-
     current = current.parentElement;
-
     if (path.length > 5) break;
   }
 
@@ -461,23 +473,46 @@ function activateElementPicker() {
       const selectors = generateSelectors(currentElement);
       console.log('Selected element selectors:', selectors);
       
-      // Get element value or text content
+      // Derive value, text and a human-readable name (label text if available)
       let value = null;
       let text = null;
-      
+      let name = null;
+
       const tagName = currentElement.tagName.toLowerCase();
       if (tagName === 'input' || tagName === 'textarea') {
         value = currentElement.value;
+        // Try label[for]
+        if (currentElement.id) {
+          const byFor = document.querySelector(`label[for='${currentElement.id}']`);
+          const labelText = byFor?.innerText?.trim();
+          if (labelText) name = labelText;
+        }
+        // Try preceding label siblings
+        if (!name) {
+          let sib = currentElement.previousElementSibling;
+          while (sib) {
+            if (sib.tagName.toLowerCase() === 'label') {
+              const t = sib.innerText?.trim();
+              if (t) { name = t; break; }
+            }
+            sib = sib.previousElementSibling;
+          }
+        }
       } else {
         text = currentElement.textContent?.trim();
       }
+
+      if (!name) {
+        name = currentElement.getAttribute('aria-label') || currentElement.getAttribute('title') || null;
+      }
       
-      // Send to panel with value and text
+      // Send to panel with value, text and name
       chrome.runtime.sendMessage({
         action: 'elementPicked',
-        selectors: selectors,
-        value: value,
-        text: text
+        selectors,
+        value,
+        text,
+        name
       });
     }
 

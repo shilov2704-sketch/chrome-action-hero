@@ -85,6 +85,9 @@ function initializeEventListeners() {
       const lastStep = state.currentRecording.steps[state.currentRecording.steps.length - 1];
       if (lastStep && lastStep.type === 'waitForElement') {
         lastStep.selectors = message.selectors;
+        if (message.name) {
+          lastStep.name = message.name;
+        }
         // Add value assertion if element has a value
         if (message.value) {
           lastStep.value = message.value;
@@ -432,10 +435,22 @@ function renderStepDetails(step) {
       ` : ''}
       ${selectorsHTML}
       ${offsetHTML}
-      ${step.value ? `
+      ${step.name ? `
+        <tr>
+          <th>Name</th>
+          <td>${step.name}</td>
+        </tr>
+      ` : ''}
+      ${step.value !== undefined ? `
         <tr>
           <th>Value</th>
           <td>${step.value}</td>
+        </tr>
+      ` : ''}
+      ${step.text !== undefined ? `
+        <tr>
+          <th>Text</th>
+          <td>${step.text}</td>
         </tr>
       ` : ''}
       ${step.key ? `
