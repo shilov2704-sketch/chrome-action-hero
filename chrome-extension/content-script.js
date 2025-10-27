@@ -35,6 +35,7 @@ function startRecording(selectors) {
   // Add event listeners
   document.addEventListener('click', handleClick, true);
   document.addEventListener('change', handleChange, true);
+  document.addEventListener('input', handleInput, true);
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
 
@@ -47,6 +48,7 @@ function stopRecording() {
   // Remove event listeners
   document.removeEventListener('click', handleClick, true);
   document.removeEventListener('change', handleChange, true);
+  document.removeEventListener('input', handleInput, true);
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
 
@@ -80,13 +82,33 @@ function handleChange(event) {
 
   const changeEvent = {
     type: 'change',
-    value: target.value,
+    value: target.value || target.textContent,
     selectors: selectors,
     target: 'main',
     url: window.location.href
   };
 
   recordEvent(changeEvent);
+}
+
+function handleInput(event) {
+  if (!isRecording) return;
+
+  const target = event.target;
+  const selectors = generateSelectors(target);
+
+  // Handle contenteditable and other elements
+  const value = target.value !== undefined ? target.value : target.textContent;
+
+  const inputEvent = {
+    type: 'change',
+    value: value,
+    selectors: selectors,
+    target: 'main',
+    url: window.location.href
+  };
+
+  recordEvent(inputEvent);
 }
 
 function handleKeyDown(event) {
@@ -421,17 +443,23 @@ function activateElementPicker() {
       const selectors = generateSelectors(currentElement);
       console.log('Selected element selectors:', selectors);
       
-      // Get element value if it's an input/textarea
+      // Get element value or text content
       let value = null;
-      if (currentElement.tagName.toLowerCase() === 'input' || currentElement.tagName.toLowerCase() === 'textarea') {
+      let text = null;
+      
+      const tagName = currentElement.tagName.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea') {
         value = currentElement.value;
+      } else {
+        text = currentElement.textContent?.trim();
       }
       
-      // Send to panel with value
+      // Send to panel with value and text
       chrome.runtime.sendMessage({
         action: 'elementPicked',
         selectors: selectors,
-        value: value
+        value: value,
+        text: text
       });
     }
 
@@ -519,8 +547,14 @@ async function executeStep(step, settings) {
     case 'change':
       const changeElement = findElement(step.selectors);
       if (changeElement) {
-        changeElement.value = step.value;
+        // Handle different element types
+        if (changeElement.value !== undefined) {
+          changeElement.value = step.value;
+        } else {
+          changeElement.textContent = step.value;
+        }
         changeElement.dispatchEvent(new Event('change', { bubbles: true }));
+        changeElement.dispatchEvent(new Event('input', { bubbles: true }));
       }
       break;
 
@@ -539,6 +573,13 @@ async function executeStep(step, settings) {
         const actualValue = element.value || element.textContent;
         if (actualValue !== step.value) {
           throw new Error(`Value assertion failed. Expected: "${step.value}", Actual: "${actualValue}"`);
+        }
+      }
+      // If text assertion is present, verify it
+      if (element && step.text !== undefined) {
+        const actualText = element.textContent?.trim();
+        if (actualText !== step.text) {
+          throw new Error(`Text assertion failed. Expected: "${step.text}", Actual: "${actualText}"`);
         }
       }
       break;

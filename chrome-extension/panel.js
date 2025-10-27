@@ -88,6 +88,10 @@ function initializeEventListeners() {
         if (message.value) {
           lastStep.value = message.value;
         }
+        // Add text assertion if element has text
+        if (message.text) {
+          lastStep.text = message.text;
+        }
         renderStepsList();
         updateCodePreview();
       }
@@ -127,6 +131,9 @@ function initializeEventListeners() {
   // Replay button
   document.getElementById('replayBtn').addEventListener('click', () => {
     const speed = document.getElementById('replaySpeed').value;
+    const timeout = parseInt(document.getElementById('replayTimeout').value) || 5000;
+    // Update replay settings with timeout
+    state.replaySettings.timeout = timeout;
     replayRecording(speed);
   });
 }
