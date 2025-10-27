@@ -3,6 +3,8 @@ let isRecording = false;
 let selectedSelectors = [];
 let recordedEvents = [];
 let isPickingElement = false;
+let isReplaying = false;
+let inputDebounceTimers = new Map();
 
 // Listen for messages from panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -17,6 +19,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (message.action === 'replayRecording') {
     replayRecording(message.recording, message.speed, message.settings);
+    sendResponse({ success: true });
+  } else if (message.action === 'stopReplay') {
+    stopReplay();
     sendResponse({ success: true });
   }
 });
@@ -95,20 +100,33 @@ function handleInput(event) {
   if (!isRecording) return;
 
   const target = event.target;
-  const selectors = generateSelectors(target);
+  
+  // Clear existing timer for this element
+  const existingTimer = inputDebounceTimers.get(target);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  
+  // Set new debounce timer (500ms)
+  const timer = setTimeout(() => {
+    const selectors = generateSelectors(target);
+    
+    // Handle contenteditable and other elements
+    const value = target.value !== undefined ? target.value : target.textContent;
+    
+    const inputEvent = {
+      type: 'change',
+      value: value,
+      selectors: selectors,
+      target: 'main',
+      url: window.location.href
+    };
 
-  // Handle contenteditable and other elements
-  const value = target.value !== undefined ? target.value : target.textContent;
-
-  const inputEvent = {
-    type: 'change',
-    value: value,
-    selectors: selectors,
-    target: 'main',
-    url: window.location.href
-  };
-
-  recordEvent(inputEvent);
+    recordEvent(inputEvent);
+    inputDebounceTimers.delete(target);
+  }, 500);
+  
+  inputDebounceTimers.set(target, timer);
 }
 
 function handleKeyDown(event) {
@@ -475,12 +493,32 @@ function activateElementPicker() {
   overlay.addEventListener('click', handleClick);
 }
 
+function stopReplay() {
+  isReplaying = false;
+  console.log('Replay stopped');
+  
+  // Clear any pending replay from sessionStorage
+  sessionStorage.removeItem('qa_recorder_pending_replay');
+  
+  // Notify panel that replay was stopped
+  chrome.runtime.sendMessage({
+    action: 'replayStopped'
+  });
+}
+
 async function replayRecording(recording, speed, settings) {
   console.log('Replaying recording:', recording.title);
   
+  isReplaying = true;
   const delay = speed === 'slow' ? 1000 : 100;
 
   for (let i = 0; i < recording.steps.length; i++) {
+    // Check if replay was stopped
+    if (!isReplaying) {
+      console.log('Replay interrupted at step', i);
+      return;
+    }
+    
     const step = recording.steps[i];
     
     // Notify panel that this step is executing
@@ -527,7 +565,13 @@ async function replayRecording(recording, speed, settings) {
     }
   }
 
+  isReplaying = false;
   console.log('Replay completed');
+  
+  // Notify panel that replay completed
+  chrome.runtime.sendMessage({
+    action: 'replayCompleted'
+  });
 }
 
 async function executeStep(step, settings) {

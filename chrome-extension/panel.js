@@ -48,6 +48,7 @@ function initializeEventListeners() {
   document.getElementById('backToMainFromPlaybackBtn').addEventListener('click', () => {
     state.currentView = 'main';
     updateView();
+    renderRecordingsList();
   });
 
   // Selector checkboxes
@@ -102,6 +103,12 @@ function initializeEventListeners() {
     if (message.action === 'replayStepStatus') {
       updateStepStatus(message.stepIndex, message.status, message.error);
     }
+    
+    // Handle replay stopped
+    if (message.action === 'replayStopped' || message.action === 'replayCompleted') {
+      document.getElementById('replayBtn').style.display = 'inline-flex';
+      document.getElementById('stopReplayBtn').style.display = 'none';
+    }
   });
 
   // Replay settings
@@ -135,6 +142,22 @@ function initializeEventListeners() {
     // Update replay settings with timeout
     state.replaySettings.timeout = timeout;
     replayRecording(speed);
+    
+    // Show Stop Replay button, hide Replay button
+    document.getElementById('replayBtn').style.display = 'none';
+    document.getElementById('stopReplayBtn').style.display = 'inline-flex';
+  });
+  
+  // Stop Replay button
+  document.getElementById('stopReplayBtn').addEventListener('click', async () => {
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    await chrome.tabs.sendMessage(tabId, {
+      action: 'stopReplay'
+    });
+    
+    // Show Replay button, hide Stop Replay button
+    document.getElementById('replayBtn').style.display = 'inline-flex';
+    document.getElementById('stopReplayBtn').style.display = 'none';
   });
 }
 
@@ -281,6 +304,7 @@ function renderRecordingsList() {
     <div class="recording-card" data-id="${recording.id}">
       <div class="recording-card-header">
         <div class="recording-card-title">${recording.title}</div>
+        <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
       </div>
       <div class="recording-card-meta">
         <span>📝 ${recording.steps.length} шагов</span>
@@ -291,9 +315,24 @@ function renderRecordingsList() {
 
   // Add click handlers
   container.querySelectorAll('.recording-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = parseInt(card.dataset.id);
-      openRecording(id);
+    card.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('delete-recording-btn')) {
+        const id = parseInt(card.dataset.id);
+        openRecording(id);
+      }
+    });
+  });
+  
+  // Add delete handlers
+  container.querySelectorAll('.delete-recording-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      if (confirm('Вы уверены, что хотите удалить эту запись?')) {
+        state.recordings = state.recordings.filter(r => r.id !== id);
+        await saveRecordings();
+        renderRecordingsList();
+      }
     });
   });
 }
