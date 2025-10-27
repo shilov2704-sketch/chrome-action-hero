@@ -326,6 +326,13 @@ function generateXPathSelector(element) {
     const dataTestId = ancestorWithTestId.getAttribute('data-testid');
     const tagName = ancestorWithTestId.tagName.toLowerCase();
 
+    // Check for SVG icons with data-testid
+    const svgWithTestId = ancestorWithTestId.querySelector('svg[data-testid]');
+    if (svgWithTestId) {
+      const svgTestId = svgWithTestId.getAttribute('data-testid');
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
+    }
+
     // Try to find readable text inside within this ancestor
     let text = '';
     const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
@@ -454,9 +461,12 @@ function activateElementPicker() {
   let currentElement = null;
 
   const handleMouseMove = (e) => {
+    // Temporarily hide overlay to get element underneath
+    overlay.style.display = 'none';
     currentElement = document.elementFromPoint(e.clientX, e.clientY);
+    overlay.style.display = '';
     
-    if (currentElement && currentElement !== overlay) {
+    if (currentElement && currentElement !== overlay && currentElement !== highlight) {
       const rect = currentElement.getBoundingClientRect();
       highlight.style.left = rect.left + 'px';
       highlight.style.top = rect.top + 'px';
