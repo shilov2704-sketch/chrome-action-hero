@@ -261,38 +261,42 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
+  // Exclude SVG elements - XPath doesn't work well with SVG
+  if (element.tagName.toLowerCase() === 'svg') {
+    return null;
+  }
+
   // Prefer stable attributes first
   if (element.id) {
     return `xpath//*[@id='${element.id}']`;
   }
 
-  // Handle input/textarea associated with a label and data-testid
-  if (
-    element.hasAttribute('data-testid') &&
-    (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea')
-  ) {
+  // Handle input/textarea/div associated with a label and data-testid
+  if (element.hasAttribute('data-testid')) {
     const dataTestId = element.getAttribute('data-testid');
+    const tagName = element.tagName.toLowerCase();
 
-    // 1) label[for] association
-    if (element.id) {
-      const byFor = document.querySelector(`label[for='${element.id}']`);
-      const labelText = byFor?.innerText?.trim();
-      if (labelText) {
-        // Use * instead of span for robustness
-        return `xpath//label[*[text()='${labelText}']]/following-sibling::*[@data-testid='${dataTestId}']`;
-      }
-    }
-
-    // 2) Previous label siblings up the chain
-    let sibling = element.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName.toLowerCase() === 'label') {
-        const labelText = sibling.innerText?.trim();
+    if (tagName === 'input' || tagName === 'textarea' || tagName === 'div') {
+      // 1) label[for] association
+      if (element.id) {
+        const byFor = document.querySelector(`label[for='${element.id}']`);
+        const labelText = byFor?.innerText?.trim();
         if (labelText) {
-          return `xpath//label[*[text()='${labelText}']]/following-sibling::*[@data-testid='${dataTestId}']`;
+          return `xpath//label[*[normalize-space(text())='${labelText}']]/following-sibling::${tagName}[@data-testid='${dataTestId}']`;
         }
       }
-      sibling = sibling.previousElementSibling;
+
+      // 2) Previous label siblings up the chain
+      let sibling = element.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName.toLowerCase() === 'label') {
+          const labelText = sibling.innerText?.trim();
+          if (labelText) {
+            return `xpath//label[*[normalize-space(text())='${labelText}']]/following-sibling::${tagName}[@data-testid='${dataTestId}']`;
+          }
+        }
+        sibling = sibling.previousElementSibling;
+      }
     }
   }
 
