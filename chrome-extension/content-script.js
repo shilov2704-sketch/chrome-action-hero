@@ -292,7 +292,7 @@ function generateXPathSelector(element) {
       const listItemTestId = listItemElement.getAttribute('data-testid');
       const checkBoxTestId = checkBoxElement.getAttribute('data-testid');
       
-      // Find text within the ListItem
+      // Find text within the ListItem (search for span containing text)
       const textElements = Array.from(listItemElement.querySelectorAll('span'));
       const textElement = textElements.find(el => {
         const text = el.textContent?.trim();
@@ -301,7 +301,10 @@ function generateXPathSelector(element) {
       
       if (textElement) {
         const text = textElement.textContent.trim();
-        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}']`;
+        // Check if CheckBox has type='radio' attribute
+        const typeAttr = checkBoxElement.getAttribute('type');
+        const typeCondition = typeAttr === 'radio' ? ` and @type='radio'` : '';
+        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}'${typeCondition}]`;
       }
     }
     
@@ -391,7 +394,10 @@ function generateXPathSelector(element) {
       
       if (textElement) {
         const text = textElement.textContent.trim();
-        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}']`;
+        // Check if CheckBox has type='radio' attribute
+        const typeAttr = checkBoxElement.getAttribute('type');
+        const typeCondition = typeAttr === 'radio' ? ` and @type='radio'` : '';
+        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}'${typeCondition}]`;
       }
     }
   }
