@@ -261,10 +261,47 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
-  // Handle SVG elements - find parent with data-testid
+  // Handle SVG elements - check if inside radio button structure first
   if (element.tagName.toLowerCase() === 'svg') {
-    // Find nearest parent with data-testid
+    // Check if SVG is inside ListItem/CheckBox structure (radio buttons)
+    let checkBoxElement = null;
+    let listItemElement = null;
     let parent = element.parentElement;
+    
+    while (parent) {
+      const parentTestId = parent.getAttribute('data-testid');
+      if (parentTestId) {
+        if (parentTestId.includes('CheckBox')) {
+          checkBoxElement = parent;
+        }
+        if (parentTestId.includes('ListItem')) {
+          listItemElement = parent;
+          break;
+        }
+      }
+      parent = parent.parentElement;
+    }
+    
+    // If inside radio button structure, use that logic
+    if (listItemElement && checkBoxElement) {
+      const listItemTestId = listItemElement.getAttribute('data-testid');
+      const checkBoxTestId = checkBoxElement.getAttribute('data-testid');
+      
+      // Find text within the ListItem
+      const textElements = Array.from(listItemElement.querySelectorAll('span'));
+      const textElement = textElements.find(el => {
+        const text = el.textContent?.trim();
+        return text && text.length > 0 && !el.querySelector('svg');
+      });
+      
+      if (textElement) {
+        const text = textElement.textContent.trim();
+        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}']`;
+      }
+    }
+    
+    // Otherwise, find parent with data-testid for regular SVG handling
+    parent = element.parentElement;
     while (parent) {
       if (parent.hasAttribute('data-testid')) {
         const parentTestId = parent.getAttribute('data-testid');
