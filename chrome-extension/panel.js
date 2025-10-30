@@ -131,8 +131,8 @@ function initializeEventListeners() {
   // Tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const tabName = e.target.dataset.tab;
-      const parentPanel = e.target.closest('.details-panel');
+      const tabName = e.currentTarget.dataset.tab;
+      const parentPanel = e.currentTarget.closest('.details-panel');
       switchTab(tabName, parentPanel);
     });
   });

@@ -332,12 +332,6 @@ body {
   flex-direction: row;
 }
 
-@media (max-width: 768px) {
-  .recording-content {
-    flex-direction: column;
-  }
-}
-
 .steps-panel {
   width: 300px;
   min-width: 200px;
@@ -345,16 +339,6 @@ body {
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-}
-
-@media (max-width: 768px) {
-  .steps-panel {
-    width: 100%;
-    min-width: unset;
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
-    max-height: 40%;
-  }
 }
 
 .steps-header {
