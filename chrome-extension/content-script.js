@@ -261,12 +261,21 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element) {
+  // Check if element is SVG or inside SVG (e.g., path, circle inside svg)
+  let svgElement = null;
+  if (element.tagName && element.tagName.toLowerCase() === 'svg') {
+    svgElement = element;
+  } else if (element.ownerSVGElement) {
+    // Element is inside SVG (e.g., path, circle, etc.)
+    svgElement = element.ownerSVGElement;
+  }
+  
   // Handle SVG elements - check if inside radio button structure first
-  if (element.tagName.toLowerCase() === 'svg') {
+  if (svgElement) {
     // Check if SVG is inside ListItem/CheckBox structure (radio buttons)
     let checkBoxElement = null;
     let listItemElement = null;
-    let parent = element.parentElement;
+    let parent = svgElement.parentElement;
     
     while (parent) {
       const parentTestId = parent.getAttribute('data-testid');
@@ -308,16 +317,16 @@ function generateXPathSelector(element) {
       }
     }
     
-    // Otherwise, find parent with data-testid for regular SVG handling
-    parent = element.parentElement;
+    // Otherwise, find parent with data-testid for regular SVG handling (icons in buttons)
+    parent = svgElement.parentElement;
     while (parent) {
       if (parent.hasAttribute('data-testid')) {
         const parentTestId = parent.getAttribute('data-testid');
         const parentTagName = parent.tagName.toLowerCase();
         
         // Check if this SVG has its own data-testid
-        if (element.hasAttribute('data-testid')) {
-          const svgTestId = element.getAttribute('data-testid');
+        if (svgElement.hasAttribute('data-testid')) {
+          const svgTestId = svgElement.getAttribute('data-testid');
           return `xpath//${parentTagName}[@data-testid='${parentTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
         }
         
