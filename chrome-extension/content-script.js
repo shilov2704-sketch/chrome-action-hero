@@ -271,7 +271,7 @@ function generateXPathSelector(element) {
     while (parent) {
       const parentTestId = parent.getAttribute('data-testid');
       if (parentTestId) {
-        if (parentTestId.includes('CheckBox')) {
+        if (!checkBoxElement && parentTestId.includes('CheckBox')) {
           checkBoxElement = parent;
         }
         if (parentTestId.includes('ListItem')) {
@@ -280,6 +280,11 @@ function generateXPathSelector(element) {
         }
       }
       parent = parent.parentElement;
+    }
+    
+    // If only ListItem found, try to find CheckBox inside it
+    if (listItemElement && !checkBoxElement) {
+      checkBoxElement = listItemElement.querySelector('[data-testid*="CheckBox"]');
     }
     
     // If inside radio button structure, use that logic

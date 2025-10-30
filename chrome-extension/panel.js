@@ -72,8 +72,11 @@ function initializeEventListeners() {
   // Stop recording
   document.getElementById('stopRecordingBtn').addEventListener('click', stopRecording);
 
-  // Element picker
-  document.getElementById('elementPickerBtn').addEventListener('click', activateElementPicker);
+  // Element picker (may be absent)
+  const elementPickerEl = document.getElementById('elementPickerBtn');
+  if (elementPickerEl) {
+    elementPickerEl.addEventListener('click', activateElementPicker);
+  }
 
   // Add assertion
   document.getElementById('addAssertionBtn').addEventListener('click', addAssertion);
