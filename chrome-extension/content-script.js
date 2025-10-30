@@ -295,6 +295,65 @@ function generateXPathSelector(element) {
     return `xpath//*[@id='${element.id}']`;
   }
 
+  // Check for radio button list structure: ListItem with CheckBox and text
+  // Structure: <div data-testid='ListItem_...'> ... <div data-testid='CheckBox_...'> ... <span>Text</span>
+  if (element.hasAttribute('data-testid')) {
+    const dataTestId = element.getAttribute('data-testid');
+    
+    // Check if this element or its parent is a CheckBox inside a ListItem
+    let checkBoxElement = null;
+    let listItemElement = null;
+    
+    // Check if current element is the checkbox or contains it
+    if (dataTestId.includes('CheckBox')) {
+      checkBoxElement = element;
+      // Find parent ListItem
+      let parent = element.parentElement;
+      while (parent) {
+        const parentTestId = parent.getAttribute('data-testid');
+        if (parentTestId && parentTestId.includes('ListItem')) {
+          listItemElement = parent;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+    } else if (dataTestId.includes('ListItem')) {
+      listItemElement = element;
+      // Find CheckBox child
+      checkBoxElement = element.querySelector('[data-testid*="CheckBox"]');
+    } else {
+      // Check if we're inside a ListItem
+      let parent = element.parentElement;
+      while (parent) {
+        const parentTestId = parent.getAttribute('data-testid');
+        if (parentTestId && parentTestId.includes('ListItem')) {
+          listItemElement = parent;
+          checkBoxElement = listItemElement.querySelector('[data-testid*="CheckBox"]');
+          break;
+        }
+        parent = parent.parentElement;
+      }
+    }
+    
+    // If we found both ListItem and CheckBox, generate the radio button XPath
+    if (listItemElement && checkBoxElement) {
+      const listItemTestId = listItemElement.getAttribute('data-testid');
+      const checkBoxTestId = checkBoxElement.getAttribute('data-testid');
+      
+      // Find text within the ListItem
+      const textElements = Array.from(listItemElement.querySelectorAll('span'));
+      const textElement = textElements.find(el => {
+        const text = el.textContent?.trim();
+        return text && text.length > 0;
+      });
+      
+      if (textElement) {
+        const text = textElement.textContent.trim();
+        return `xpath//*[@data-testid='${listItemTestId}' and .//*[text()='${text}']]//*[@data-testid='${checkBoxTestId}']`;
+      }
+    }
+  }
+
   // Handle input/textarea/div associated with a label and data-testid
   if (element.hasAttribute('data-testid')) {
     const dataTestId = element.getAttribute('data-testid');
@@ -684,8 +743,20 @@ async function executeStep(step, settings) {
       break;
 
     case 'click':
-      const clickElement = findElement(step.selectors);
+      const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
+        // Scroll element into view
+        clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Click at the center of the element
+        const rect = clickElement.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        
+        // Create and dispatch mouse events
+        clickElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: x, clientY: y }));
+        clickElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x, clientY: y }));
         clickElement.click();
       }
       break;

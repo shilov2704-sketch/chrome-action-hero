@@ -55,6 +55,8 @@ body {
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   gap: 16px;
+  flex-wrap: wrap;
+  min-height: 50px;
 }
 
 .header h1 {
@@ -73,6 +75,7 @@ body {
 .header-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* Buttons */
@@ -145,6 +148,12 @@ body {
 
 .btn .icon {
   font-size: 14px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Recording Indicator */
@@ -320,14 +329,32 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  flex-direction: row;
+}
+
+@media (max-width: 768px) {
+  .recording-content {
+    flex-direction: column;
+  }
 }
 
 .steps-panel {
   width: 300px;
+  min-width: 200px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 768px) {
+  .steps-panel {
+    width: 100%;
+    min-width: unset;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    max-height: 40%;
+  }
 }
 
 .steps-header {

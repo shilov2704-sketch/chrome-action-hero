@@ -100,6 +100,11 @@ function initializeEventListeners() {
         updateCodePreview();
       }
       state.isAddingAssertion = false;
+      // Re-enable the Add Assertion button
+      const addAssertionBtn = document.getElementById('addAssertionBtn');
+      if (addAssertionBtn) {
+        addAssertionBtn.disabled = false;
+      }
     }
     
     // Handle replay step status updates
@@ -182,6 +187,7 @@ async function startRecording() {
   // Get viewport info
   const tabId = chrome.devtools.inspectedWindow.tabId;
   
+  // Create new recording with empty steps array
   state.currentRecording = {
     id: Date.now(),
     title: name,
@@ -192,10 +198,18 @@ async function startRecording() {
   };
 
   state.isRecording = true;
+  state.isAddingAssertion = false;
+  state.selectedStep = null;
   state.currentView = 'recording';
   updateView();
 
   document.getElementById('currentRecordingName').textContent = name;
+  
+  // Clear the steps list UI immediately
+  const stepsContainer = document.getElementById('stepsList');
+  if (stepsContainer) {
+    stepsContainer.innerHTML = '<div class="step-details-empty"><p>Шаги появятся здесь</p></div>';
+  }
 
   // Inject content script and start recording
   await chrome.tabs.sendMessage(tabId, {
@@ -256,6 +270,12 @@ async function activateElementPicker() {
 
 // Add Assertion
 async function addAssertion() {
+  // Disable the button while picking element
+  const addAssertionBtn = document.getElementById('addAssertionBtn');
+  if (addAssertionBtn) {
+    addAssertionBtn.disabled = true;
+  }
+  
   const assertion = {
     type: 'waitForElement',
     selectors: [],
@@ -570,7 +590,10 @@ async function deleteCurrentRecording() {
   state.recordings = state.recordings.filter(r => r.id !== state.currentRecording.id);
   await saveRecordings();
   
+  // Clear current recording completely
   state.currentRecording = null;
+  state.isAddingAssertion = false;
+  state.selectedStep = null;
   state.currentView = 'main';
   updateView();
   renderRecordingsList();
