@@ -214,14 +214,14 @@ async function startRecording() {
     stepsContainer.innerHTML = '<div class="step-details-empty"><p>Шаги появятся здесь</p></div>';
   }
 
+  // Listen for recorded events BEFORE starting recording to catch initial events
+  chrome.runtime.onMessage.addListener(handleRecordedEvent);
+
   // Inject content script and start recording
   await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
     selectors: state.selectedSelectors
   });
-
-  // Listen for recorded events
-  chrome.runtime.onMessage.addListener(handleRecordedEvent);
 }
 
 // Stop Recording
