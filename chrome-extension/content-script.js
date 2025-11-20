@@ -64,7 +64,7 @@ function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
   const target = event.target;
-  const selectors = generateSelectors(target);
+  const selectors = generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
 
   const clickEvent = {
@@ -83,7 +83,7 @@ function handleChange(event) {
   if (!isRecording) return;
 
   const target = event.target;
-  const selectors = generateSelectors(target);
+  const selectors = generateSelectors(target, 'change');
 
   const changeEvent = {
     type: 'change',
@@ -109,7 +109,7 @@ function handleInput(event) {
   
   // Set new debounce timer (500ms)
   const timer = setTimeout(() => {
-    const selectors = generateSelectors(target);
+    const selectors = generateSelectors(target, 'change');
     
     // Handle contenteditable and other elements
     const value = target.value !== undefined ? target.value : target.textContent;
@@ -185,7 +185,7 @@ function recordNavigation() {
   recordEvent(navEvent);
 }
 
-function generateSelectors(element) {
+function generateSelectors(element, eventType = null) {
   const selectors = [];
 
   selectedSelectors.forEach(selectorType => {
@@ -196,7 +196,7 @@ function generateSelectors(element) {
         break;
 
       case 'xpath':
-        const xpathSelector = generateXPathSelector(element);
+        const xpathSelector = generateXPathSelector(element, eventType);
         if (xpathSelector) selectors.push([xpathSelector]);
         break;
 
@@ -260,7 +260,7 @@ function generateCSSSelector(element) {
   return path.join(' > ');
 }
 
-function generateXPathSelector(element) {
+function generateXPathSelector(element, eventType = null) {
   // Check if element is SVG or inside SVG (e.g., path, circle inside svg)
   let svgElement = null;
   if (element.tagName && element.tagName.toLowerCase() === 'svg') {
@@ -478,6 +478,10 @@ function generateXPathSelector(element) {
         const text = anyWithText.textContent.trim();
         // Only create this XPath if it's not a form-related div (already handled above)
         if (text && !element.previousElementSibling || element.previousElementSibling.tagName.toLowerCase() !== 'label') {
+          // For 'change' events, don't include text condition since text is being entered
+          if (eventType === 'change') {
+            return `xpath//div[@data-testid='${dataTestId}']`;
+          }
           return `xpath//div[@data-testid='${dataTestId}' and .//*[normalize-space(text())='${text}']]`;
         }
       }
@@ -514,6 +518,10 @@ function generateXPathSelector(element) {
     }
 
     if (text) {
+      // For 'change' events, don't include text condition since text is being entered
+      if (eventType === 'change') {
+        return `xpath//${tagName}[@data-testid='${dataTestId}']`;
+      }
       // Use * instead of span for robustness
       return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[text()='${text}']]`;
     }
