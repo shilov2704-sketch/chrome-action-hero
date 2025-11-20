@@ -176,9 +176,17 @@ function initializeEventListeners() {
 async function startRecording() {
   const nameInput = document.getElementById('recordingName');
   const name = nameInput.value.trim();
+  
+  const suiteNameInput = document.getElementById('suiteName');
+  const suiteName = suiteNameInput.value.trim();
 
   if (!name) {
     alert('Пожалуйста, введите название записи');
+    return;
+  }
+
+  if (!suiteName) {
+    alert('Пожалуйста, введите название TestSuite');
     return;
   }
 
@@ -194,6 +202,7 @@ async function startRecording() {
   state.currentRecording = {
     id: Date.now(),
     title: name,
+    suiteName: suiteName,
     selectorAttribute: 'data-testid',
     createdAt: new Date().toISOString(),
     steps: [],
