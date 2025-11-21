@@ -503,14 +503,7 @@ function generateXPathSelector(element, eventType = null) {
     const dataTestId = ancestorWithTestId.getAttribute('data-testid');
     const tagName = ancestorWithTestId.tagName.toLowerCase();
 
-    // Check for SVG icons with data-testid
-    const svgWithTestId = ancestorWithTestId.querySelector('svg[data-testid]');
-    if (svgWithTestId) {
-      const svgTestId = svgWithTestId.getAttribute('data-testid');
-      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
-    }
-
-    // Try to find readable text inside within this ancestor
+    // Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
     let text = '';
     let textElementTag = 'span';
     const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
@@ -527,6 +520,13 @@ function generateXPathSelector(element, eventType = null) {
       }
       // Create XPath with text condition embedded: //div[@data-testid='Button_Tag_7a9741' and .//span[text()='Сохранить']]
       return `xpath//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
+    }
+
+    // Check for SVG icons with data-testid (only if no text found)
+    const svgWithTestId = ancestorWithTestId.querySelector('svg[data-testid]');
+    if (svgWithTestId) {
+      const svgTestId = svgWithTestId.getAttribute('data-testid');
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
     }
 
     // Check for parent container with data-testid (for deeply nested structures without text)
