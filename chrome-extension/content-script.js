@@ -611,14 +611,14 @@ function generateXPathSelector(element, eventType = null) {
       transitionButtonContainer = transitionButtonContainer.parentElement;
     }
     
-    // FOURTH: Check if element is a radio button inside HierarchyListElement with title text
+    // FOURTH: Check if element is a checkbox inside HierarchyListElement with title text
     let hierarchyContainer = ancestorWithTestId;
     while (hierarchyContainer && hierarchyContainer.nodeType === Node.ELEMENT_NODE) {
       const hierarchyTestId = hierarchyContainer.getAttribute('data-testid');
       if (hierarchyTestId && (hierarchyTestId.includes('HierarchyListElement_') || hierarchyTestId.includes('HierarchyListElement'))) {
-        // Check if the clicked element is a radio button
-        const isRadioButton = ancestorWithTestId.getAttribute('type') === 'radio';
-        if (isRadioButton) {
+        // Ensure the clicked element is a checkbox root
+        const isCheckBoxRoot = dataTestId && dataTestId.includes('CheckBox_CheckBoxRoot');
+        if (isCheckBoxRoot) {
           // Look for p element with title attribute in the container
           const titleElement = hierarchyContainer.querySelector('p[title]');
           if (titleElement) {
