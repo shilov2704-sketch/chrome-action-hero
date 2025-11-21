@@ -588,12 +588,32 @@ function renderPlaybackStepDetails(step) {
   container.innerHTML = document.getElementById('stepDetails').innerHTML;
 }
 
+function prepareRecordingForExport(recording) {
+  if (!recording) return null;
+
+  const { steps = [], ...rest } = recording;
+  const normalSteps = steps.filter(step => step.type !== 'waitForElement');
+  const checkSteps = steps.filter(step => step.type === 'waitForElement');
+
+  const result = {
+    ...rest,
+    steps: normalSteps
+  };
+
+  if (checkSteps.length > 0) {
+    result.checkSteps = checkSteps;
+  }
+
+  return result;
+}
+
 function updateCodePreview() {
   if (!state.currentRecording) return;
   
   const codePreview = document.getElementById('codePreview');
   const playbackCodePreview = document.getElementById('playbackCodePreview');
-  const jsonStr = JSON.stringify(state.currentRecording, null, 2);
+  const exportRecording = prepareRecordingForExport(state.currentRecording);
+  const jsonStr = JSON.stringify(exportRecording, null, 2);
   
   if (codePreview) codePreview.textContent = jsonStr;
   if (playbackCodePreview) playbackCodePreview.textContent = jsonStr;
@@ -631,7 +651,8 @@ async function openRecording(id) {
 async function exportRecording() {
   if (!state.currentRecording) return;
 
-  const dataStr = JSON.stringify(state.currentRecording, null, 2);
+  const exportRecordingData = prepareRecordingForExport(state.currentRecording);
+  const dataStr = JSON.stringify(exportRecordingData, null, 2);
   const blob = new Blob([dataStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   

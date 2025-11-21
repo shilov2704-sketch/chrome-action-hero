@@ -317,30 +317,74 @@ function generateXPathSelector(element, eventType = null) {
       }
     }
     
-    // Otherwise, find parent with data-testid for regular SVG handling (icons in buttons)
+    // Otherwise, find ancestor with data-testid and apply special container rules before generic SVG handling (icons in buttons)
     parent = svgElement.parentElement;
+    let ancestorWithTestId = null;
     while (parent) {
       if (parent.hasAttribute('data-testid')) {
-        const parentTestId = parent.getAttribute('data-testid');
-        const parentTagName = parent.tagName.toLowerCase();
-        
-        // Check if this SVG has its own data-testid
-        if (svgElement.hasAttribute('data-testid')) {
-          const svgTestId = svgElement.getAttribute('data-testid');
-          return `xpath//${parentTagName}[@data-testid='${parentTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
-        }
-        
-        // If SVG doesn't have testid, try to find any SVG child with testid
-        const svgWithTestId = parent.querySelector('svg[data-testid]');
-        if (svgWithTestId) {
-          const svgTestId = svgWithTestId.getAttribute('data-testid');
-          return `xpath//${parentTagName}[@data-testid='${parentTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
-        }
-        
+        ancestorWithTestId = parent;
         break;
       }
       parent = parent.parentElement;
     }
+
+    if (ancestorWithTestId) {
+      const dataTestId = ancestorWithTestId.getAttribute('data-testid');
+      const tagName = ancestorWithTestId.tagName.toLowerCase();
+
+      // 1) If element is inside a TextFieldRoot container with a preceding label, use container + label text
+      let textFieldContainer = ancestorWithTestId.parentElement;
+      while (textFieldContainer && textFieldContainer.nodeType === Node.ELEMENT_NODE) {
+        const textFieldTestId = textFieldContainer.getAttribute('data-testid');
+        if (textFieldTestId && textFieldTestId.includes('TextFieldRoot_')) {
+          const label = textFieldContainer.querySelector('label');
+          if (label) {
+            const labelText = label.textContent.trim();
+            if (labelText) {
+              return `xpath//*[@data-testid='${textFieldTestId}']//*[@data-testid='${dataTestId}' and preceding::label[1]//*[text()='${labelText}']]`;
+            }
+          }
+        }
+        textFieldContainer = textFieldContainer.parentElement;
+      }
+
+      // 2) If element is inside a PanelRoot container with preceding text, use container + preceding text
+      let panelContainer = ancestorWithTestId.parentElement;
+      while (panelContainer && panelContainer.nodeType === Node.ELEMENT_NODE) {
+        const panelTestId = panelContainer.getAttribute('data-testid');
+        if (panelTestId && panelTestId.includes('PanelRoot_')) {
+          const allElements = Array.from(panelContainer.querySelectorAll('*'));
+          const ancestorIndex = allElements.indexOf(ancestorWithTestId);
+          const precedingWithText = allElements.slice(0, ancestorIndex).reverse().find(el => {
+            const hasDirectText = Array.from(el.childNodes).some(child =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+            );
+            return hasDirectText;
+          });
+          if (precedingWithText) {
+            const precedingText = precedingWithText.textContent.trim();
+            return `xpath//*[@data-testid='${panelTestId}']//*[@data-testid='${dataTestId}' and preceding::*[text()='${precedingText}']]`;
+          }
+        }
+        panelContainer = panelContainer.parentElement;
+      }
+
+      // 3) Generic SVG handling: fall back to parent element + SVG data-testid when no special container rules matched
+      if (svgElement.hasAttribute('data-testid')) {
+        const svgTestId = svgElement.getAttribute('data-testid');
+        return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
+      }
+
+      const svgWithTestId = ancestorWithTestId.querySelector('svg[data-testid]');
+      if (svgWithTestId) {
+        const svgTestId = svgWithTestId.getAttribute('data-testid');
+        return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[local-name()='svg' and @data-testid='${svgTestId}']]`;
+      }
+
+      // Final fallback: just use the ancestor with data-testid
+      return `xpath//${tagName}[@data-testid='${dataTestId}']`;
+    }
+
     return null;
   }
 
