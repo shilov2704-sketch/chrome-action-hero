@@ -504,9 +504,16 @@ function generateXPathSelector(element, eventType = null) {
     const tagName = ancestorWithTestId.tagName.toLowerCase();
 
     // Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
+    // Look for element with direct text content (not inherited from children)
     let text = '';
     let textElementTag = 'span';
-    const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
+    const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => {
+      // Check if element has direct text node children
+      const hasDirectText = Array.from(n.childNodes).some(child => 
+        child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+      );
+      return hasDirectText;
+    });
     if (anyWithText) {
       text = anyWithText.textContent.trim();
       textElementTag = anyWithText.tagName.toLowerCase();
