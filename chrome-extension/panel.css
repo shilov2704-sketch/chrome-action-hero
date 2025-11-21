@@ -22,10 +22,10 @@
 
 #app.dark-theme {
   --bg-primary: #121212;
-  --bg-secondary: #1e1e1e;
-  --bg-tertiary: #232323;
-  --bg-hover: #2a2a2a;
-  --border-color: #3c4043;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #1e1e1e;
+  --bg-hover: #252525;
+  --border-color: #333333;
   --text-primary: #e8eaed;
   --text-secondary: #bdc1c6;
   --accent-primary: #8ab4f8;
@@ -412,7 +412,12 @@ body {
 }
 
 .step-item.active {
-  background: #e8f0fe;
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+#app.dark-theme .step-item.active {
+  background: #1a2942;
   border-color: var(--accent-primary);
 }
 
@@ -422,13 +427,28 @@ body {
   animation: executing-pulse 1.5s infinite;
 }
 
+#app.dark-theme .step-item.step-executing {
+  background: #3d3520;
+  border-color: var(--warning);
+}
+
 .step-item.step-success {
   background: #e6f4ea;
   border-color: var(--success);
 }
 
+#app.dark-theme .step-item.step-success {
+  background: #1e3a28;
+  border-color: var(--success);
+}
+
 .step-item.step-error {
   background: #fce8e6;
+  border-color: var(--danger);
+}
+
+#app.dark-theme .step-item.step-error {
+  background: #3a2020;
   border-color: var(--danger);
 }
 

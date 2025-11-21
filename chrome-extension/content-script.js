@@ -871,41 +871,100 @@ async function executeStep(step, settings) {
 function findElement(selectors) {
   if (!Array.isArray(selectors)) return null;
   
+  // Priority 1: Try XPath selectors first (most reliable)
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    
     const selector = selectorArray[0];
     
     if (selector.startsWith('xpath//')) {
       const xpath = selector.replace('xpath//', '//');
       try {
         const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-        if (result.singleNodeValue) return result.singleNodeValue;
+        if (result.singleNodeValue) {
+          console.log('Found element using XPath:', xpath);
+          return result.singleNodeValue;
+        }
       } catch (e) {
         console.warn('Invalid XPath:', xpath, e);
       }
-    } else if (selector.startsWith('text/')) {
-      const text = selector.replace('text/', '');
-      const elements = Array.from(document.querySelectorAll('*'));
-      const element = elements.find(el => el.textContent?.trim() === text);
-      if (element) return element;
-    } else if (selector.startsWith('pierce/')) {
+    }
+  }
+  
+  // Priority 2: Try ARIA selectors
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    
+    if (selector.startsWith('aria/')) {
+      const ariaLabel = selector.replace('aria/', '');
+      try {
+        const element = document.querySelector(`[aria-label="${ariaLabel}"]`) || 
+                       document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
+        if (element) {
+          console.log('Found element using ARIA:', ariaLabel);
+          return element;
+        }
+      } catch (e) {
+        console.warn('Invalid ARIA selector:', selector, e);
+      }
+    }
+  }
+  
+  // Priority 3: Try CSS selectors
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    
+    if (!selector.startsWith('xpath//') && !selector.startsWith('text/') && 
+        !selector.startsWith('pierce/') && !selector.startsWith('aria/')) {
+      try {
+        const element = document.querySelector(selector);
+        if (element) {
+          console.log('Found element using CSS:', selector);
+          return element;
+        }
+      } catch (e) {
+        console.warn('Invalid CSS selector:', selector, e);
+      }
+    }
+  }
+  
+  // Priority 4: Try Pierce selectors
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    
+    if (selector.startsWith('pierce/')) {
       const cssSelector = selector.replace('pierce/', '');
       try {
         const element = document.querySelector(cssSelector);
-        if (element) return element;
+        if (element) {
+          console.log('Found element using Pierce:', cssSelector);
+          return element;
+        }
       } catch (e) {
-        console.warn('Invalid pierce selector:', cssSelector);
+        console.warn('Invalid pierce selector:', cssSelector, e);
       }
-    } else if (selector.startsWith('aria/')) {
-      // Skip ARIA selectors for now as they're complex
-      continue;
-    } else {
-      try {
-        const element = document.querySelector(selector);
-        if (element) return element;
-      } catch (e) {
-        console.warn('Invalid selector:', selector);
+    }
+  }
+  
+  // Priority 5: Text selectors as last resort (least reliable)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    
+    if (selector.startsWith('text/')) {
+      const text = selector.replace('text/', '');
+      console.warn('Using text selector as fallback:', text);
+      
+      // Find clickable elements only (buttons, links, inputs)
+      const clickableSelectors = 'button, a, input, [role="button"], [onclick]';
+      const elements = Array.from(document.querySelectorAll(clickableSelectors));
+      const element = elements.find(el => el.textContent?.trim() === text);
+      
+      if (element) {
+        console.log('Found element using text (fallback):', text);
+        return element;
       }
     }
   }
