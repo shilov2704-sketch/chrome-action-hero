@@ -10,13 +10,15 @@ const state = {
   replaySettings: {
     throttling: 'none',
     timeout: 5000
-  }
+  },
+  theme: 'light'
 };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadRecordings();
   initializeEventListeners();
+  initializeTheme();
   updateView();
 });
 
@@ -50,6 +52,21 @@ function initializeEventListeners() {
     updateView();
     renderRecordingsList();
   });
+
+  // Theme switcher
+  const themeSelect = document.getElementById('themeSelect');
+  if (themeSelect) {
+    themeSelect.addEventListener('change', async (e) => {
+      const theme = e.target.value === 'dark' ? 'dark' : 'light';
+      state.theme = theme;
+      applyTheme(theme);
+      try {
+        await chrome.storage.sync.set({ qaRecorderTheme: theme });
+      } catch (err) {
+        console.warn('Failed to save theme', err);
+      }
+    });
+  }
 
   // Selector checkboxes
   ['CSS', 'ARIA', 'Text', 'XPath', 'Pierce'].forEach(type => {
@@ -170,6 +187,38 @@ function initializeEventListeners() {
     document.getElementById('replayBtn').style.display = 'inline-flex';
     document.getElementById('stopReplayBtn').style.display = 'none';
   });
+}
+
+async function initializeTheme() {
+  const appRoot = document.getElementById('app');
+  const themeSelect = document.getElementById('themeSelect');
+  let storedTheme = 'light';
+
+  try {
+    const result = await chrome.storage.sync.get(['qaRecorderTheme']);
+    if (result.qaRecorderTheme === 'dark' || result.qaRecorderTheme === 'light') {
+      storedTheme = result.qaRecorderTheme;
+    }
+  } catch (err) {
+    console.warn('Failed to load theme, using default light', err);
+  }
+
+  state.theme = storedTheme;
+  applyTheme(storedTheme);
+
+  if (themeSelect) {
+    themeSelect.value = storedTheme;
+  }
+}
+
+function applyTheme(theme) {
+  const appRoot = document.getElementById('app');
+  if (!appRoot) return;
+  if (theme === 'dark') {
+    appRoot.classList.add('dark-theme');
+  } else {
+    appRoot.classList.remove('dark-theme');
+  }
 }
 
 // Start Recording
