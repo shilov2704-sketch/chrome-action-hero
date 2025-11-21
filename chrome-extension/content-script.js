@@ -595,12 +595,15 @@ function generateXPathSelector(element, eventType = null) {
     let transitionButtonContainer = ancestorWithTestId.parentElement;
     while (transitionButtonContainer && transitionButtonContainer.nodeType === Node.ELEMENT_NODE) {
       const transitionTestId = transitionButtonContainer.getAttribute('data-testid');
-      if (transitionTestId && transitionTestId.includes('WithTransitionButtonRoot_')) {
-        // Look for preceding-sibling span with text
-        const precedingSibling = ancestorWithTestId.previousElementSibling;
-        if (precedingSibling && precedingSibling.tagName.toLowerCase() === 'span') {
-          const spanText = precedingSibling.textContent.trim();
-          if (spanText) {
+      if (transitionTestId && (transitionTestId.includes('WithTransitionButtonRoot') || transitionTestId.includes('WithTransitionButton'))) {
+        // Look for sibling span label with text near the button
+        const parent = ancestorWithTestId.parentElement;
+        if (parent) {
+          const spanLabel = Array.from(parent.children).find(el =>
+            el.tagName.toLowerCase() === 'span' && el.textContent && el.textContent.trim()
+          );
+          if (spanLabel) {
+            const spanText = spanLabel.textContent.trim();
             return `xpath//*[@data-testid='${transitionTestId}']//*[@data-testid='${dataTestId}' and preceding-sibling::span[text()='${spanText}']]`;
           }
         }
@@ -612,9 +615,9 @@ function generateXPathSelector(element, eventType = null) {
     let hierarchyContainer = ancestorWithTestId;
     while (hierarchyContainer && hierarchyContainer.nodeType === Node.ELEMENT_NODE) {
       const hierarchyTestId = hierarchyContainer.getAttribute('data-testid');
-      if (hierarchyTestId && hierarchyTestId.includes('HierarchyListElement_')) {
-        // Check if the clicked element is a radio button (CheckBox with type='radio')
-        const isRadioButton = dataTestId.includes('CheckBox_CheckBoxRoot_') && ancestorWithTestId.getAttribute('type') === 'radio';
+      if (hierarchyTestId && (hierarchyTestId.includes('HierarchyListElement_') || hierarchyTestId.includes('HierarchyListElement'))) {
+        // Check if the clicked element is a radio button
+        const isRadioButton = ancestorWithTestId.getAttribute('type') === 'radio';
         if (isRadioButton) {
           // Look for p element with title attribute in the container
           const titleElement = hierarchyContainer.querySelector('p[title]');
