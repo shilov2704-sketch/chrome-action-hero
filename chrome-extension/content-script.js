@@ -537,6 +537,45 @@ function generateXPathSelector(element, eventType = null) {
         sidebarContainer = sidebarContainer.parentElement;
       }
       
+      // Check if element is inside a TextFieldRoot container with preceding label
+      let textFieldContainer = ancestorWithTestId.parentElement;
+      while (textFieldContainer && textFieldContainer.nodeType === Node.ELEMENT_NODE) {
+        const textFieldTestId = textFieldContainer.getAttribute('data-testid');
+        if (textFieldTestId && textFieldTestId.includes('TextFieldRoot_')) {
+          // Look for label with text in the container
+          const label = textFieldContainer.querySelector('label');
+          if (label) {
+            const labelText = label.textContent.trim();
+            if (labelText) {
+              return `xpath//*[@data-testid='${textFieldTestId}']//*[@data-testid='${dataTestId}' and preceding::label[1]//*[text()='${labelText}']]`;
+            }
+          }
+        }
+        textFieldContainer = textFieldContainer.parentElement;
+      }
+      
+      // Check if element is inside a PanelRoot container with preceding text
+      let panelContainer = ancestorWithTestId.parentElement;
+      while (panelContainer && panelContainer.nodeType === Node.ELEMENT_NODE) {
+        const panelTestId = panelContainer.getAttribute('data-testid');
+        if (panelTestId && panelTestId.includes('PanelRoot_')) {
+          // Look for any element with text before the button in the panel
+          const allElements = Array.from(panelContainer.querySelectorAll('*'));
+          const ancestorIndex = allElements.indexOf(ancestorWithTestId);
+          const precedingWithText = allElements.slice(0, ancestorIndex).reverse().find(el => {
+            const hasDirectText = Array.from(el.childNodes).some(child => 
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+            );
+            return hasDirectText;
+          });
+          if (precedingWithText) {
+            const precedingText = precedingWithText.textContent.trim();
+            return `xpath//*[@data-testid='${panelTestId}']//*[@data-testid='${dataTestId}' and preceding::*[text()='${precedingText}']]`;
+          }
+        }
+        panelContainer = panelContainer.parentElement;
+      }
+      
       // Create XPath with text condition embedded: //div[@data-testid='Button_Tag_7a9741' and .//span[text()='Сохранить']]
       return `xpath//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
     }
