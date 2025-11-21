@@ -512,12 +512,24 @@ function generateXPathSelector(element, eventType = null) {
 
     // Try to find readable text inside within this ancestor
     let text = '';
+    let textElementTag = 'span';
     const anyWithText = Array.from(ancestorWithTestId.querySelectorAll('*')).find(n => n.textContent && n.textContent.trim());
     if (anyWithText) {
       text = anyWithText.textContent.trim();
+      textElementTag = anyWithText.tagName.toLowerCase();
     }
 
-    // Check for parent container with data-testid (for nested button structures)
+    // First check if this element has text - create XPath: //div[@data-testid='...' and .//span[text()='...']]
+    if (text) {
+      // For 'change' events, don't include text condition since text is being entered
+      if (eventType === 'change') {
+        return `xpath//${tagName}[@data-testid='${dataTestId}']`;
+      }
+      // Create XPath with text condition embedded: //div[@data-testid='Button_Tag_7a9741' and .//span[text()='Сохранить']]
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
+    }
+
+    // Check for parent container with data-testid (for deeply nested structures without text)
     let parentContainer = ancestorWithTestId.parentElement;
     let parentWithTestId = null;
     while (parentContainer && parentContainer.nodeType === Node.ELEMENT_NODE) {
@@ -528,27 +540,11 @@ function generateXPathSelector(element, eventType = null) {
       parentContainer = parentContainer.parentElement;
     }
 
-    // If we have a parent container and text, create a nested XPath
-    if (parentWithTestId && text) {
+    // If we have a parent container, create a nested XPath for structure-based selection
+    if (parentWithTestId) {
       const parentTestId = parentWithTestId.getAttribute('data-testid');
       const parentTagName = parentWithTestId.tagName.toLowerCase();
-      
-      // For 'change' events, don't include text condition
-      if (eventType === 'change') {
-        return `xpath//${parentTagName}[@data-testid='${parentTestId}']//${tagName}[@data-testid='${dataTestId}']`;
-      }
-      
-      // Create nested XPath: parent[@testid]//button[@testid]//span[text()='...']
-      return `xpath//${parentTagName}[@data-testid='${parentTestId}']//${tagName}[@data-testid='${dataTestId}']//*[normalize-space(text())='${text}']`;
-    }
-
-    if (text) {
-      // For 'change' events, don't include text condition since text is being entered
-      if (eventType === 'change') {
-        return `xpath//${tagName}[@data-testid='${dataTestId}']`;
-      }
-      // Use * instead of span for robustness and normalize-space for reliable matching
-      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[normalize-space(text())='${text}']]`;
+      return `xpath//${parentTagName}[@data-testid='${parentTestId}']//${tagName}[@data-testid='${dataTestId}']`;
     }
 
     // Fallback to just data-testid
