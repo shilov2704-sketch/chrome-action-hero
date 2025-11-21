@@ -590,8 +590,47 @@ function generateXPathSelector(element, eventType = null) {
       }
       panelContainer = panelContainer.parentElement;
     }
+    
+    // THIRD: Check if element is inside a WithTransitionButtonRoot container with preceding-sibling span
+    let transitionButtonContainer = ancestorWithTestId.parentElement;
+    while (transitionButtonContainer && transitionButtonContainer.nodeType === Node.ELEMENT_NODE) {
+      const transitionTestId = transitionButtonContainer.getAttribute('data-testid');
+      if (transitionTestId && transitionTestId.includes('WithTransitionButtonRoot_')) {
+        // Look for preceding-sibling span with text
+        const precedingSibling = ancestorWithTestId.previousElementSibling;
+        if (precedingSibling && precedingSibling.tagName.toLowerCase() === 'span') {
+          const spanText = precedingSibling.textContent.trim();
+          if (spanText) {
+            return `xpath//*[@data-testid='${transitionTestId}']//*[@data-testid='${dataTestId}' and preceding-sibling::span[text()='${spanText}']]`;
+          }
+        }
+      }
+      transitionButtonContainer = transitionButtonContainer.parentElement;
+    }
+    
+    // FOURTH: Check if element is a radio button inside HierarchyListElement with title text
+    let hierarchyContainer = ancestorWithTestId;
+    while (hierarchyContainer && hierarchyContainer.nodeType === Node.ELEMENT_NODE) {
+      const hierarchyTestId = hierarchyContainer.getAttribute('data-testid');
+      if (hierarchyTestId && hierarchyTestId.includes('HierarchyListElement_')) {
+        // Check if the clicked element is a radio button (CheckBox with type='radio')
+        const isRadioButton = dataTestId.includes('CheckBox_CheckBoxRoot_') && ancestorWithTestId.getAttribute('type') === 'radio';
+        if (isRadioButton) {
+          // Look for p element with title attribute in the container
+          const titleElement = hierarchyContainer.querySelector('p[title]');
+          if (titleElement) {
+            const titleText = titleElement.getAttribute('title');
+            if (titleText) {
+              return `xpath//p[@title='${titleText}']/ancestor::div[contains(@data-testid,'HierarchyListElement')]//div[contains(@data-testid,'CheckBox_CheckBoxRoot')]`;
+            }
+          }
+        }
+        break;
+      }
+      hierarchyContainer = hierarchyContainer.parentElement;
+    }
 
-    // THIRD: Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
+    // FIFTH: Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
     // Look for element with direct text content (not inherited from children)
     let text = '';
     let textElementTag = 'span';
