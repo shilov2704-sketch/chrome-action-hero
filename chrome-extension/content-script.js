@@ -525,6 +525,18 @@ function generateXPathSelector(element, eventType = null) {
       if (eventType === 'change') {
         return `xpath//${tagName}[@data-testid='${dataTestId}']`;
       }
+      
+      // Check if element is inside a RightSideBar container
+      let sidebarContainer = ancestorWithTestId.parentElement;
+      while (sidebarContainer && sidebarContainer.nodeType === Node.ELEMENT_NODE) {
+        const sidebarTestId = sidebarContainer.getAttribute('data-testid');
+        if (sidebarTestId && sidebarTestId.includes('RightSideBarRoot_')) {
+          const sidebarTagName = sidebarContainer.tagName.toLowerCase();
+          return `xpath//${sidebarTagName}[@data-testid='${sidebarTestId}']//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
+        }
+        sidebarContainer = sidebarContainer.parentElement;
+      }
+      
       // Create XPath with text condition embedded: //div[@data-testid='Button_Tag_7a9741' and .//span[text()='Сохранить']]
       return `xpath//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
     }
