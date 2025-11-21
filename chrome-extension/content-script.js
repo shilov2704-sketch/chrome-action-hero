@@ -517,6 +517,31 @@ function generateXPathSelector(element, eventType = null) {
       text = anyWithText.textContent.trim();
     }
 
+    // Check for parent container with data-testid (for nested button structures)
+    let parentContainer = ancestorWithTestId.parentElement;
+    let parentWithTestId = null;
+    while (parentContainer && parentContainer.nodeType === Node.ELEMENT_NODE) {
+      if (parentContainer.hasAttribute('data-testid')) {
+        parentWithTestId = parentContainer;
+        break;
+      }
+      parentContainer = parentContainer.parentElement;
+    }
+
+    // If we have a parent container and text, create a nested XPath
+    if (parentWithTestId && text) {
+      const parentTestId = parentWithTestId.getAttribute('data-testid');
+      const parentTagName = parentWithTestId.tagName.toLowerCase();
+      
+      // For 'change' events, don't include text condition
+      if (eventType === 'change') {
+        return `xpath//${parentTagName}[@data-testid='${parentTestId}']//${tagName}[@data-testid='${dataTestId}']`;
+      }
+      
+      // Create nested XPath: parent[@testid]//button[@testid]//span[text()='...']
+      return `xpath//${parentTagName}[@data-testid='${parentTestId}']//${tagName}[@data-testid='${dataTestId}']//*[normalize-space(text())='${text}']`;
+    }
+
     if (text) {
       // For 'change' events, don't include text condition since text is being entered
       if (eventType === 'change') {
