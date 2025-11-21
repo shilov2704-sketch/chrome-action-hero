@@ -522,8 +522,8 @@ function generateXPathSelector(element, eventType = null) {
       if (eventType === 'change') {
         return `xpath//${tagName}[@data-testid='${dataTestId}']`;
       }
-      // Use * instead of span for robustness
-      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[text()='${text}']]`;
+      // Use * instead of span for robustness and normalize-space for reliable matching
+      return `xpath//${tagName}[@data-testid='${dataTestId}' and .//*[normalize-space(text())='${text}']]`;
     }
 
     // Fallback to just data-testid
