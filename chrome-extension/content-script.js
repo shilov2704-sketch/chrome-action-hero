@@ -503,7 +503,51 @@ function generateXPathSelector(element, eventType = null) {
     const dataTestId = ancestorWithTestId.getAttribute('data-testid');
     const tagName = ancestorWithTestId.tagName.toLowerCase();
 
-    // Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
+    // For 'change' events, return simple XPath without text condition
+    if (eventType === 'change') {
+      return `xpath//${tagName}[@data-testid='${dataTestId}']`;
+    }
+
+    // FIRST: Check if element is inside a TextFieldRoot container with preceding label
+    let textFieldContainer = ancestorWithTestId.parentElement;
+    while (textFieldContainer && textFieldContainer.nodeType === Node.ELEMENT_NODE) {
+      const textFieldTestId = textFieldContainer.getAttribute('data-testid');
+      if (textFieldTestId && textFieldTestId.includes('TextFieldRoot_')) {
+        // Look for label with text in the container
+        const label = textFieldContainer.querySelector('label');
+        if (label) {
+          const labelText = label.textContent.trim();
+          if (labelText) {
+            return `xpath//*[@data-testid='${textFieldTestId}']//*[@data-testid='${dataTestId}' and preceding::label[1]//*[text()='${labelText}']]`;
+          }
+        }
+      }
+      textFieldContainer = textFieldContainer.parentElement;
+    }
+    
+    // SECOND: Check if element is inside a PanelRoot container with preceding text
+    let panelContainer = ancestorWithTestId.parentElement;
+    while (panelContainer && panelContainer.nodeType === Node.ELEMENT_NODE) {
+      const panelTestId = panelContainer.getAttribute('data-testid');
+      if (panelTestId && panelTestId.includes('PanelRoot_')) {
+        // Look for any element with text before the button in the panel
+        const allElements = Array.from(panelContainer.querySelectorAll('*'));
+        const ancestorIndex = allElements.indexOf(ancestorWithTestId);
+        const precedingWithText = allElements.slice(0, ancestorIndex).reverse().find(el => {
+          const hasDirectText = Array.from(el.childNodes).some(child => 
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim()
+          );
+          return hasDirectText;
+        });
+        if (precedingWithText) {
+          const precedingText = precedingWithText.textContent.trim();
+          return `xpath//*[@data-testid='${panelTestId}']//*[@data-testid='${dataTestId}' and preceding::*[text()='${precedingText}']]`;
+        }
+      }
+      panelContainer = panelContainer.parentElement;
+    }
+
+    // THIRD: Try to find readable text inside within this ancestor (PRIORITY: text over SVG)
     // Look for element with direct text content (not inherited from children)
     let text = '';
     let textElementTag = 'span';
@@ -519,13 +563,8 @@ function generateXPathSelector(element, eventType = null) {
       textElementTag = anyWithText.tagName.toLowerCase();
     }
 
-    // First check if this element has text - create XPath: //div[@data-testid='...' and .//span[text()='...']]
+    // If element has text inside, create XPath with text
     if (text) {
-      // For 'change' events, don't include text condition since text is being entered
-      if (eventType === 'change') {
-        return `xpath//${tagName}[@data-testid='${dataTestId}']`;
-      }
-      
       // Check if element is inside a RightSideBar container
       let sidebarContainer = ancestorWithTestId.parentElement;
       while (sidebarContainer && sidebarContainer.nodeType === Node.ELEMENT_NODE) {
@@ -535,45 +574,6 @@ function generateXPathSelector(element, eventType = null) {
           return `xpath//${sidebarTagName}[@data-testid='${sidebarTestId}']//${tagName}[@data-testid='${dataTestId}' and .//${textElementTag}[text()='${text}']]`;
         }
         sidebarContainer = sidebarContainer.parentElement;
-      }
-      
-      // Check if element is inside a TextFieldRoot container with preceding label
-      let textFieldContainer = ancestorWithTestId.parentElement;
-      while (textFieldContainer && textFieldContainer.nodeType === Node.ELEMENT_NODE) {
-        const textFieldTestId = textFieldContainer.getAttribute('data-testid');
-        if (textFieldTestId && textFieldTestId.includes('TextFieldRoot_')) {
-          // Look for label with text in the container
-          const label = textFieldContainer.querySelector('label');
-          if (label) {
-            const labelText = label.textContent.trim();
-            if (labelText) {
-              return `xpath//*[@data-testid='${textFieldTestId}']//*[@data-testid='${dataTestId}' and preceding::label[1]//*[text()='${labelText}']]`;
-            }
-          }
-        }
-        textFieldContainer = textFieldContainer.parentElement;
-      }
-      
-      // Check if element is inside a PanelRoot container with preceding text
-      let panelContainer = ancestorWithTestId.parentElement;
-      while (panelContainer && panelContainer.nodeType === Node.ELEMENT_NODE) {
-        const panelTestId = panelContainer.getAttribute('data-testid');
-        if (panelTestId && panelTestId.includes('PanelRoot_')) {
-          // Look for any element with text before the button in the panel
-          const allElements = Array.from(panelContainer.querySelectorAll('*'));
-          const ancestorIndex = allElements.indexOf(ancestorWithTestId);
-          const precedingWithText = allElements.slice(0, ancestorIndex).reverse().find(el => {
-            const hasDirectText = Array.from(el.childNodes).some(child => 
-              child.nodeType === Node.TEXT_NODE && child.textContent.trim()
-            );
-            return hasDirectText;
-          });
-          if (precedingWithText) {
-            const precedingText = precedingWithText.textContent.trim();
-            return `xpath//*[@data-testid='${panelTestId}']//*[@data-testid='${dataTestId}' and preceding::*[text()='${precedingText}']]`;
-          }
-        }
-        panelContainer = panelContainer.parentElement;
       }
       
       // Create XPath with text condition embedded: //div[@data-testid='Button_Tag_7a9741' and .//span[text()='Сохранить']]
