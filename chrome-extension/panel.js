@@ -773,35 +773,53 @@ function scrollToStepInCode(stepIndex, previewElementId = 'codePreview') {
   const lines = jsonText.split('\n');
   
   // Find the line that contains this step in the JSON
-  // Steps are in the "steps" array, so we look for the stepIndex-th step
   let stepLine = -1;
   let stepsArrayFound = false;
   let stepCount = 0;
+  let bracketDepth = 0;
   
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i].trim();
     
     // Find "steps": [ array
-    if (line.includes('"steps"')) {
+    if (line.includes('"steps"') && line.includes('[')) {
       stepsArrayFound = true;
       continue;
     }
     
-    // Count step objects by looking for opening braces after steps array starts
-    if (stepsArrayFound && line.trim().startsWith('{')) {
-      if (stepCount === stepIndex) {
-        stepLine = i;
+    // Track bracket depth to properly count step objects
+    if (stepsArrayFound) {
+      if (line.startsWith('{')) {
+        if (bracketDepth === 0) {
+          // This is a top-level step object
+          if (stepCount === stepIndex) {
+            stepLine = i;
+            break;
+          }
+          stepCount++;
+        }
+        bracketDepth++;
+      }
+      if (line.includes('}')) {
+        bracketDepth--;
+      }
+      // Stop when we reach the end of steps array
+      if (line.startsWith(']') && bracketDepth === 0) {
         break;
       }
-      stepCount++;
     }
   }
   
   if (stepLine === -1) return;
   
-  // Approximate scroll position (each line is roughly 20px in height)
-  const lineHeight = 20;
+  // Calculate scroll position based on line height
+  const computedStyle = window.getComputedStyle(codePreview);
+  const lineHeight = parseFloat(computedStyle.lineHeight) || 20;
   const scrollPosition = stepLine * lineHeight;
   
-  codePreview.scrollTop = Math.max(0, scrollPosition - 100); // Offset for visibility
+  // Smooth scroll to the step with offset for better visibility
+  codePreview.scrollTo({
+    top: Math.max(0, scrollPosition - 100),
+    behavior: 'smooth'
+  });
 }
