@@ -367,6 +367,14 @@ function switchTab(tabName, parentPanel = document) {
   if (tabName === 'code' || tabName === 'playbackCode') {
     updateCodePreview();
   }
+  
+  // If switching to code tab and a step is selected, scroll to it
+  if ((tabName === 'code' || tabName === 'playbackCode') && state.selectedStep !== null) {
+    setTimeout(() => {
+      const previewId = tabName === 'code' ? 'codePreview' : 'playbackCodePreview';
+      scrollToStepInCode(state.selectedStep, previewId);
+    }, 100);
+  }
 }
 
 // Render Functions
@@ -472,7 +480,7 @@ function selectStep(index) {
   
   if (isCodeTabActive) {
     // Navigate to step in JSON code
-    scrollToStepInCode(index);
+    setTimeout(() => scrollToStepInCode(index, 'codePreview'), 50);
   } else {
     // Show step details
     const step = state.currentRecording.steps[index];
@@ -572,6 +580,7 @@ function renderPlaybackView() {
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('delete-step-btn')) {
         const index = parseInt(item.dataset.index);
+        state.selectedStep = index;
         
         // Update active state
         container.querySelectorAll('.step-item').forEach((el, i) => {
@@ -584,7 +593,7 @@ function renderPlaybackView() {
         
         if (isCodeTabActive) {
           // Navigate to step in JSON code
-          scrollToStepInCode(index, 'playbackCodePreview');
+          setTimeout(() => scrollToStepInCode(index, 'playbackCodePreview'), 50);
         } else {
           // Show step details
           const step = state.currentRecording.steps[index];
