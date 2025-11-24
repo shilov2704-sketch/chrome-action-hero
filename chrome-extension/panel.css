@@ -282,6 +282,7 @@ body {
   padding: 4px;
   opacity: 0;
   transition: opacity 0.2s;
+  color: #ea4335;
 }
 
 .recording-card:hover .delete-recording-btn {
@@ -305,6 +306,7 @@ body {
   overflow-y: auto;
   padding: 20px;
   max-width: 600px;
+  width: 100%;
   background: var(--bg-primary);
 }
 
@@ -540,6 +542,7 @@ body {
 
 .panel-tabs {
   display: flex;
+  flex-wrap: wrap;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }

@@ -466,9 +466,18 @@ function selectStep(index) {
     item.classList.toggle('active', i === index);
   });
 
-  // Show step details
-  const step = state.currentRecording.steps[index];
-  renderStepDetails(step);
+  // Check if "Show Code" tab is active
+  const codeTab = document.querySelector('.tab-btn[data-tab="code"]');
+  const isCodeTabActive = codeTab && codeTab.classList.contains('active');
+  
+  if (isCodeTabActive) {
+    // Navigate to step in JSON code
+    scrollToStepInCode(index);
+  } else {
+    // Show step details
+    const step = state.currentRecording.steps[index];
+    renderStepDetails(step);
+  }
 }
 
 function renderStepDetails(step) {
@@ -563,8 +572,24 @@ function renderPlaybackView() {
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('delete-step-btn')) {
         const index = parseInt(item.dataset.index);
-        const step = state.currentRecording.steps[index];
-        renderPlaybackStepDetails(step);
+        
+        // Update active state
+        container.querySelectorAll('.step-item').forEach((el, i) => {
+          el.classList.toggle('active', i === index);
+        });
+        
+        // Check if "Show Code" tab is active
+        const codeTab = document.querySelector('.tab-btn[data-tab="playbackCode"]');
+        const isCodeTabActive = codeTab && codeTab.classList.contains('active');
+        
+        if (isCodeTabActive) {
+          // Navigate to step in JSON code
+          scrollToStepInCode(index, 'playbackCodePreview');
+        } else {
+          // Show step details
+          const step = state.currentRecording.steps[index];
+          renderPlaybackStepDetails(step);
+        }
       }
     });
   });
@@ -738,4 +763,45 @@ function updateStepStatus(stepIndex, status, error) {
       stepElement.title = `Ошибка: ${error}`;
     }
   }
+}
+
+function scrollToStepInCode(stepIndex, previewElementId = 'codePreview') {
+  const codePreview = document.getElementById(previewElementId);
+  if (!codePreview) return;
+  
+  const jsonText = codePreview.textContent;
+  const lines = jsonText.split('\n');
+  
+  // Find the line that contains this step in the JSON
+  // Steps are in the "steps" array, so we look for the stepIndex-th step
+  let stepLine = -1;
+  let stepsArrayFound = false;
+  let stepCount = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Find "steps": [ array
+    if (line.includes('"steps"')) {
+      stepsArrayFound = true;
+      continue;
+    }
+    
+    // Count step objects by looking for opening braces after steps array starts
+    if (stepsArrayFound && line.trim().startsWith('{')) {
+      if (stepCount === stepIndex) {
+        stepLine = i;
+        break;
+      }
+      stepCount++;
+    }
+  }
+  
+  if (stepLine === -1) return;
+  
+  // Approximate scroll position (each line is roughly 20px in height)
+  const lineHeight = 20;
+  const scrollPosition = stepLine * lineHeight;
+  
+  codePreview.scrollTop = Math.max(0, scrollPosition - 100); // Offset for visibility
 }
