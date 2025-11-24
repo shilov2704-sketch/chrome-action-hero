@@ -577,6 +577,7 @@ body {
   display: none;
   flex: 1;
   overflow-y: auto;
+  overflow-x: auto;
   padding: 16px;
 }
 
@@ -596,6 +597,8 @@ body {
 .step-details-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
+  word-wrap: break-word;
 }
 
 .step-details-table th,
@@ -604,12 +607,15 @@ body {
   text-align: left;
   border-bottom: 1px solid var(--border-color);
   font-size: 12px;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .step-details-table th {
   background: var(--bg-secondary);
   font-weight: 500;
   color: var(--text-primary);
+  min-width: 100px;
 }
 
 .step-details-table td {
@@ -619,12 +625,14 @@ body {
 .selector-list {
   list-style: none;
   padding: 0;
+  word-break: break-all;
 }
 
 .selector-list li {
   padding: 3px 0;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 11px;
+  word-break: break-all;
 }
 
 .code-preview {
