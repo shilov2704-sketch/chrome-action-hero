@@ -4,6 +4,7 @@ const state = {
   recordings: [],
   currentRecording: null,
   isRecording: false,
+  isContinuingRecording: false,
   isAddingAssertion: false,
   selectedStep: null,
   selectedSelectors: ['css', 'xpath'],
@@ -187,6 +188,9 @@ function initializeEventListeners() {
     document.getElementById('replayBtn').style.display = 'inline-flex';
     document.getElementById('stopReplayBtn').style.display = 'none';
   });
+  
+  // Continue Recording button
+  document.getElementById('continueRecordingBtn').addEventListener('click', continueRecording);
 }
 
 async function initializeTheme() {
@@ -296,8 +300,19 @@ async function stopRecording() {
   // Stop listening to recorded events to avoid duplicates on next runs
   try { chrome.runtime.onMessage.removeListener(handleRecordedEvent); } catch (e) {}
   
-  // Save recording
-  state.recordings.push(state.currentRecording);
+  // Save or update recording
+  if (state.isContinuingRecording) {
+    // Update existing recording
+    const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+    if (recordingIndex !== -1) {
+      state.recordings[recordingIndex] = state.currentRecording;
+    }
+    state.isContinuingRecording = false;
+  } else {
+    // Add new recording
+    state.recordings.push(state.currentRecording);
+  }
+  
   await saveRecordings();
 
   // Switch to playback view
@@ -306,11 +321,46 @@ async function stopRecording() {
   renderPlaybackView();
 }
 
+// Continue Recording
+async function continueRecording() {
+  if (!state.currentRecording) return;
+
+  state.isContinuingRecording = true;
+  state.isRecording = true;
+  state.isAddingAssertion = false;
+  state.selectedStep = null;
+  state.currentView = 'recording';
+  updateView();
+
+  document.getElementById('currentRecordingName').textContent = state.currentRecording.title;
+  
+  // Render existing steps
+  renderStepsList();
+  updateCodePreview();
+
+  // Listen for recorded events
+  chrome.runtime.onMessage.addListener(handleRecordedEvent);
+
+  // Start recording without adding setViewport and navigate
+  const tabId = chrome.devtools.inspectedWindow.tabId;
+  await chrome.tabs.sendMessage(tabId, {
+    action: 'startRecording',
+    selectors: state.currentRecording.selectedSelectors || state.selectedSelectors,
+    skipInitialSteps: true  // Flag to skip setViewport and navigate
+  });
+}
+
 // Handle recorded events from content script
 function handleRecordedEvent(message) {
   if (message.action === 'recordedEvent' && state.isRecording) {
     const step = message.event;
     const steps = state.currentRecording.steps;
+    
+    // Skip setViewport and navigate if continuing recording
+    if (state.isContinuingRecording && (step.type === 'setViewport' || step.type === 'navigate')) {
+      return;
+    }
+    
     const last = steps[steps.length - 1];
     if (last && JSON.stringify(last) === JSON.stringify(step)) {
       return; // ignore duplicate
