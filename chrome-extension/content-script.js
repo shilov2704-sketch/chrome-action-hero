@@ -188,32 +188,41 @@ function recordNavigation() {
 function generateSelectors(element, eventType = null) {
   const selectors = [];
 
-  selectedSelectors.forEach(selectorType => {
-    switch (selectorType) {
-      case 'css':
-        const cssSelector = generateCSSSelector(element);
-        if (cssSelector) selectors.push([cssSelector]);
-        break;
+  selectedSelectors.forEach((selectorType) => {
+    try {
+      switch (selectorType) {
+        case 'css': {
+          const cssSelector = generateCSSSelector(element);
+          if (cssSelector) selectors.push([cssSelector]);
+          break;
+        }
 
-      case 'xpath':
-        const xpathSelector = generateXPathSelector(element, eventType);
-        if (xpathSelector) selectors.push([xpathSelector]);
-        break;
+        case 'xpath': {
+          const xpathSelector = generateXPathSelector(element, eventType);
+          if (xpathSelector) selectors.push([xpathSelector]);
+          break;
+        }
 
-      case 'aria':
-        const ariaSelector = generateARIASelector(element);
-        if (ariaSelector) selectors.push([ariaSelector]);
-        break;
+        case 'aria': {
+          const ariaSelector = generateARIASelector(element);
+          if (ariaSelector) selectors.push([ariaSelector]);
+          break;
+        }
 
-      case 'text':
-        const textSelector = generateTextSelector(element);
-        if (textSelector) selectors.push([textSelector]);
-        break;
+        case 'text': {
+          const textSelector = generateTextSelector(element);
+          if (textSelector) selectors.push([textSelector]);
+          break;
+        }
 
-      case 'pierce':
-        const pierceSelector = generatePierceSelector(element);
-        if (pierceSelector) selectors.push([pierceSelector]);
-        break;
+        case 'pierce': {
+          const pierceSelector = generatePierceSelector(element);
+          if (pierceSelector) selectors.push([pierceSelector]);
+          break;
+        }
+      }
+    } catch (error) {
+      console.warn('Error generating selector of type', selectorType, error);
     }
   });
 
@@ -280,17 +289,14 @@ function generateXPathSelector(element, eventType = null) {
       'mainMenu-maps',
     ];
 
+    const isSectionWithChildren = mainMenuWithChildren.includes(mainMenuTestId);
+
     // CASE 1: section containers that should use Children div for XPath
     if (isSectionWithChildren) {
-      // Always use direct child with Children class, независимо от того, куда кликнули
-      const directChildren = Array.from(menuElement.children);
-      const childWithClass = directChildren.find((child) => {
-        const childClass = child.getAttribute('class') || '';
-        return (
-          childClass.includes('css-1tzdf0w-Children') ||
-          childClass.includes('css-p8v5c9-Children')
-        );
-      });
+      // Ищем descendant с классом Children внутри этого mainMenu-элемента
+      const childWithClass = menuElement.querySelector(
+        'div.css-1tzdf0w-Children.e5f8h0614, div.css-p8v5c9-Children.e5f8h0614'
+      );
 
       if (childWithClass) {
         const childClass = childWithClass.getAttribute('class');
