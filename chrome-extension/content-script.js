@@ -270,49 +270,6 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element, eventType = null) {
-  // SPECIAL HANDLING FOR SIDE MENU (mainMenu-* data-testid)
-  const menuElement = element.closest('[data-testid^="mainMenu-"]');
-  const mainMenuTestId = menuElement ? menuElement.getAttribute('data-testid') : null;
-
-  if (menuElement && mainMenuTestId) {
-    // IDs of main menu sections that use Children containers
-    const mainMenuWithChildren = [
-      'mainMenu-tasks',
-      'mainMenu-assets',
-      'mainMenu-users',
-      'mainMenu-companies',
-      'mainMenu-taskConversations',
-      'mainMenu-warehouse',
-      'mainMenu-bi',
-      'mainMenu-printReports',
-      'mainMenu-myReports',
-      'mainMenu-maps',
-    ];
-
-    const isSectionWithChildren = mainMenuWithChildren.includes(mainMenuTestId);
-
-    // CASE 1: section containers that should use Children div for XPath
-    if (isSectionWithChildren) {
-      // Ищем descendant с классом Children внутри этого mainMenu-элемента
-      const childWithClass = menuElement.querySelector(
-        'div.css-1tzdf0w-Children.e5f8h0614, div.css-p8v5c9-Children.e5f8h0614'
-      );
-
-      if (childWithClass) {
-        const childClass = childWithClass.getAttribute('class');
-        if (childClass) {
-          return `xpath//*[@data-testid='${mainMenuTestId}']/*[@class='${childClass}']`;
-        }
-      }
-    }
-
-    // CASE 2: items opened by clicking on <a> inside mainMenu-* elements
-    const linkElement = menuElement.querySelector('a');
-    if (linkElement && (linkElement === element || linkElement.contains(element))) {
-      return `xpath//*[@data-testid='${mainMenuTestId}']/a`;
-    }
-  }
-  
   // Check if element is SVG or inside SVG (e.g., path, circle inside svg)
   let svgElement = null;
   if (element.tagName && element.tagName.toLowerCase() === 'svg') {
