@@ -261,6 +261,53 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element, eventType = null) {
+  // SPECIAL HANDLING FOR SIDE MENU (mainMenu-* data-testid)
+  // Check if element or its ancestors have mainMenu- data-testid
+  let menuElement = element;
+  let mainMenuTestId = null;
+  
+  // Search for mainMenu- data-testid in element and ancestors
+  while (menuElement && menuElement.nodeType === Node.ELEMENT_NODE) {
+    const testId = menuElement.getAttribute('data-testid');
+    if (testId && testId.startsWith('mainMenu-')) {
+      mainMenuTestId = testId;
+      break;
+    }
+    menuElement = menuElement.parentElement;
+  }
+  
+  if (mainMenuTestId && menuElement) {
+    // Case 1: Check if clicked element has the special Children class
+    const elementClass = element.getAttribute('class');
+    if (elementClass && (elementClass.includes('css-1tzdf0w-Children') || elementClass.includes('css-p8v5c9-Children'))) {
+      // Return XPath with exact class match
+      return `xpath//*[@data-testid='${mainMenuTestId}']/*[@class='${elementClass}']`;
+    }
+    
+    // Case 2: Check if clicked element is inside the mainMenu element and has Children class
+    if (element !== menuElement) {
+      let childWithClass = element;
+      while (childWithClass && childWithClass.parentElement !== menuElement) {
+        childWithClass = childWithClass.parentElement;
+      }
+      if (childWithClass && childWithClass.parentElement === menuElement) {
+        const childClass = childWithClass.getAttribute('class');
+        if (childClass && (childClass.includes('css-1tzdf0w-Children') || childClass.includes('css-p8v5c9-Children'))) {
+          return `xpath//*[@data-testid='${mainMenuTestId}']/*[@class='${childClass}']`;
+        }
+      }
+    }
+    
+    // Case 3: Check if mainMenu element contains <a> tag (for opening sections)
+    const linkElement = menuElement.querySelector('a');
+    if (linkElement) {
+      // If clicked on <a> or its child, return XPath to <a>
+      if (linkElement === element || linkElement.contains(element)) {
+        return `xpath//*[@data-testid='${mainMenuTestId}']/a`;
+      }
+    }
+  }
+  
   // Check if element is SVG or inside SVG (e.g., path, circle inside svg)
   let svgElement = null;
   if (element.tagName && element.tagName.toLowerCase() === 'svg') {
