@@ -897,13 +897,14 @@ function stopReplay() {
   });
 }
 
-async function replayRecording(recording, speed, settings) {
+async function replayRecording(recording, speed, settings, startIndex = 0) {
   console.log('Replaying recording:', recording.title);
   
   isReplaying = true;
   const delay = speed === 'slow' ? 1000 : 100;
 
   for (let i = 0; i < recording.steps.length; i++) {
+    const actualIndex = startIndex + i;
     // Check if replay was stopped
     if (!isReplaying) {
       console.log('Replay interrupted at step', i);
@@ -915,7 +916,7 @@ async function replayRecording(recording, speed, settings) {
     // Notify panel that this step is executing
     chrome.runtime.sendMessage({
       action: 'replayStepStatus',
-      stepIndex: i,
+      stepIndex: actualIndex,
       status: 'executing'
     });
     
@@ -929,8 +930,16 @@ async function replayRecording(recording, speed, settings) {
           steps: remaining,
           speed,
           settings,
-          currentIndex: i
+          startIndex: actualIndex + 1
         }));
+        
+        // Mark navigate step as success before leaving
+        chrome.runtime.sendMessage({
+          action: 'replayStepStatus',
+          stepIndex: actualIndex,
+          status: 'success'
+        });
+        
         window.location.href = step.url;
         return; // Will resume after page load
       } else {
@@ -940,16 +949,19 @@ async function replayRecording(recording, speed, settings) {
       // Notify panel that this step succeeded
       chrome.runtime.sendMessage({
         action: 'replayStepStatus',
-        stepIndex: i,
+        stepIndex: actualIndex,
         status: 'success'
       });
+      
+      // Small delay to ensure message is sent
+      await new Promise(resolve => setTimeout(resolve, 50));
     } catch (error) {
       console.error('Error executing step:', step, error);
       
       // Notify panel that this step failed
       chrome.runtime.sendMessage({
         action: 'replayStepStatus',
-        stepIndex: i,
+        stepIndex: actualIndex,
         status: 'error',
         error: error.message
       });
@@ -1165,9 +1177,9 @@ async function waitForNavigation() {
   try {
     const pending = sessionStorage.getItem('qa_recorder_pending_replay');
     if (pending) {
-      const { steps, speed, settings } = JSON.parse(pending);
+      const { steps, speed, settings, startIndex } = JSON.parse(pending);
       sessionStorage.removeItem('qa_recorder_pending_replay');
-      replayRecording({ title: 'Resumed', steps }, speed, settings);
+      replayRecording({ title: 'Resumed', steps }, speed, settings, startIndex || 0);
     }
   } catch (e) {
     console.warn('Failed to resume pending replay', e);
