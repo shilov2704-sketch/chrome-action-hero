@@ -977,6 +977,34 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
   });
 }
 
+// Highlight element visually during replay
+function highlightElement(element, duration = 800) {
+  const highlight = document.createElement('div');
+  highlight.style.cssText = `
+    position: fixed;
+    border: 3px solid #ff0000;
+    background: rgba(255, 0, 0, 0.15);
+    pointer-events: none;
+    z-index: 10000000;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+  `;
+  
+  const rect = element.getBoundingClientRect();
+  highlight.style.left = rect.left + 'px';
+  highlight.style.top = rect.top + 'px';
+  highlight.style.width = rect.width + 'px';
+  highlight.style.height = rect.height + 'px';
+  
+  document.body.appendChild(highlight);
+  
+  // Fade out and remove
+  setTimeout(() => {
+    highlight.style.opacity = '0';
+    setTimeout(() => highlight.remove(), 300);
+  }, duration);
+}
+
 async function executeStep(step, settings) {
   switch (step.type) {
     case 'navigate':
@@ -990,6 +1018,10 @@ async function executeStep(step, settings) {
         // Scroll element into view
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Highlight the element before clicking
+        highlightElement(clickElement);
+        await new Promise(resolve => setTimeout(resolve, 400));
         
         // Click at the center of the element
         const rect = clickElement.getBoundingClientRect();
