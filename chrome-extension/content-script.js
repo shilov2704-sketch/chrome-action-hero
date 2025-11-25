@@ -270,6 +270,21 @@ function generateCSSSelector(element) {
 }
 
 function generateXPathSelector(element, eventType = null) {
+  // SPECIAL HANDLING FOR mainMenu subsections with <a> tags
+  const menuElement = element.closest('[data-testid^="mainMenu-"]');
+  if (menuElement) {
+    const mainMenuTestId = menuElement.getAttribute('data-testid');
+    // Check if it's a subsection (has more than one dash after mainMenu-, e.g., mainMenu-tasks-allTasks)
+    const dashCount = (mainMenuTestId.match(/-/g) || []).length;
+    if (dashCount >= 2) {
+      // Find <a> tag inside this menu element
+      const linkElement = menuElement.querySelector('a');
+      if (linkElement && (linkElement === element || linkElement.contains(element) || element.contains(linkElement))) {
+        return `xpath//*[@data-testid='${mainMenuTestId}']/a`;
+      }
+    }
+  }
+
   // Check if element is SVG or inside SVG (e.g., path, circle inside svg)
   let svgElement = null;
   if (element.tagName && element.tagName.toLowerCase() === 'svg') {
