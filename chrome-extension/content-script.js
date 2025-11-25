@@ -280,42 +280,17 @@ function generateXPathSelector(element, eventType = null) {
       'mainMenu-maps',
     ];
 
-    const isSectionWithChildren = mainMenuWithChildren.includes(mainMenuTestId);
-
     // CASE 1: section containers that should use Children div for XPath
     if (isSectionWithChildren) {
-      let childWithClass = null;
-
-      // Try to find an ancestor of the clicked element with Children class inside this menu section
-      let current = element;
-      while (current && current !== menuElement) {
-        if (current.nodeType === Node.ELEMENT_NODE) {
-          const currentClass = current.getAttribute('class') || '';
-          if (
-            currentClass.includes('css-1tzdf0w-Children') ||
-            currentClass.includes('css-p8v5c9-Children')
-          ) {
-            childWithClass = current;
-            break;
-          }
-        }
-        current = current.parentElement;
-      }
-
-      // Fallback: search inside menuElement for a Children container that contains the clicked element
-      if (!childWithClass) {
-        const candidates = Array.from(
-          menuElement.querySelectorAll('div')
+      // Always use direct child with Children class, независимо от того, куда кликнули
+      const directChildren = Array.from(menuElement.children);
+      const childWithClass = directChildren.find((child) => {
+        const childClass = child.getAttribute('class') || '';
+        return (
+          childClass.includes('css-1tzdf0w-Children') ||
+          childClass.includes('css-p8v5c9-Children')
         );
-        childWithClass = candidates.find((child) => {
-          const childClass = child.getAttribute('class') || '';
-          return (
-            (childClass.includes('css-1tzdf0w-Children') ||
-              childClass.includes('css-p8v5c9-Children')) &&
-            child.contains(element)
-          );
-        });
-      }
+      });
 
       if (childWithClass) {
         const childClass = childWithClass.getAttribute('class');
