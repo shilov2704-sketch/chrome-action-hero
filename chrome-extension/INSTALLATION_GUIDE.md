@@ -69,42 +69,65 @@
 
 **Специальная обработка для вашего проекта:**
 
-**Радио-кнопки:**
-```html
-<div data-testid='UserListItem_ListItemRoot_a0c246'>
-  <div>
-    <div>
-      <div data-testid='CheckBox_CheckBoxRoot_7c23fb' type='radio'>
-  <div>
-    <span>Андрей Массовый перевод</span>
-```
-Генерируется XPath:
-```xpath
-//*[@data-testid='ListItem_ListItemRoot_9f8b7c' and .//*[text()='Андрей Массовый перевод']]//*[@data-testid='CheckBox_CheckBoxRoot_7c23fb' and @type='radio']
-```
+Расширение использует уникальный атрибут **`data-test`** для генерации XPath локаторов. Ключевые особенности:
 
-**Кнопки с иконками:**
-```html
-<div data-testid='Button_Tag_7a9741'>
-  <div>
-    <span></span>
-    <div>
-      <svg data-testid='ImportNew_svg_8864be'>
-```
-Генерируется XPath:
-```xpath
-//div[@data-testid='Button_Tag_7a9741' and .//*[local-name()='svg' and @data-testid='ImportNew_svg_8864be']]
-```
+✅ **Уникальность** - каждый `data-test` уникален и однозначно идентифицирует элемент  
+✅ **Интеллектуальное определение** - расширение автоматически находит интерактивный элемент (кнопку, ссылку), а не вложенные текстовые или графические элементы  
+✅ **Простота** - генерируется лаконичный XPath без дополнительных условий
 
-**Кнопки с текстом:**
+**Как это работает:**
+
+1. **Атрибут `data-test` присутствует у всех элементов DOM**
+2. **При клике на элемент** расширение поднимается вверх по DOM-дереву для поиска ближайшего интерактивного родителя:
+   - `<a>` - ссылки
+   - `<button>` - кнопки
+   - `<input>`, `<textarea>`, `<select>` - элементы ввода
+   - Элементы с `role="button"`, `role="link"`, `role="menuitem"` и т.д.
+   - Элементы с атрибутом `onclick`
+   - Элементы, чей `data-test` содержит ключевые слова: `Button`, `Link`, `Menu`, `Tab`, `Item`
+3. **Генерируется простой XPath** для найденного интерактивного элемента
+
+**Примеры:**
+
+**Кнопка с вложенным текстом:**
 ```html
-<div data-testid='Button_Tag_7a9741'>
-  <span>Создать заявку</span>
+<div data-test='Button_Tag_7a9741::0vzkweb::1'>
+  <div data-test='::0vzkweb::5'>
+    <span data-test='::0vzkweb::6'>Создать заявку</span>
+  </div>
+</div>
 ```
-Генерируется XPath:
+При клике на текст "Создать заявку" генерируется XPath:
 ```xpath
-//div[@data-testid='Button_Tag_7a9741' and .//span[text()='Создать заявку']]
+xpath//*[@data-test='Button_Tag_7a9741::0vzkweb::1']
 ```
+Расширение определяет, что клик произошел внутри кнопки, и использует `data-test` именно кнопки.
+
+**Ссылка в меню:**
+```html
+<div data-test='mainMenu-tasks-allTasks'>
+  <a data-test='link::0vzkweb::23'>
+    <span data-test='::0vzkweb::24'>Все заявки</span>
+  </a>
+</div>
+```
+При клике на текст "Все заявки" генерируется XPath:
+```xpath
+xpath//*[@data-test='link::0vzkweb::23']
+```
+Расширение находит элемент `<a>` как ближайший интерактивный родитель.
+
+**Input поле:**
+```html
+<div data-test='Input_Container_abc123'>
+  <input data-test='Input_Field_xyz789' type='text' />
+</div>
+```
+При вводе текста в поле генерируется XPath:
+```xpath
+xpath//*[@data-test='Input_Field_xyz789']
+```
+Для input элементов расширение использует сам элемент напрямую.
 
 #### 3. Ввод текста
 - Заполнение форм
