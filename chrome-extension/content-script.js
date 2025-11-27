@@ -60,10 +60,49 @@ function stopRecording() {
   console.log('Recording stopped', recordedEvents);
 }
 
+function findInteractiveElement(element) {
+  // List of interactive elements and attributes
+  const interactiveSelectors = ['a', 'button', 'input', 'textarea', 'select'];
+  const interactiveRoles = ['button', 'link', 'tab', 'menuitem', 'option'];
+  
+  let current = element;
+  
+  while (current && current !== document.body) {
+    // Check if it's an interactive element
+    const tagName = current.tagName?.toLowerCase();
+    if (interactiveSelectors.includes(tagName)) {
+      return current;
+    }
+    
+    // Check if it has an interactive role
+    const role = current.getAttribute('role');
+    if (role && interactiveRoles.includes(role)) {
+      return current;
+    }
+    
+    // Check if it has onclick or is contenteditable
+    if (current.hasAttribute('onclick') || current.hasAttribute('contenteditable')) {
+      return current;
+    }
+    
+    // Check if it has data-test and looks like a clickable component (contains Button, Link, etc in data-test)
+    const dataTest = current.getAttribute('data-test');
+    if (dataTest && /Button|Link|Menu|Tab|Item/i.test(dataTest)) {
+      return current;
+    }
+    
+    current = current.parentElement;
+  }
+  
+  // If no interactive element found, return the original element
+  return element;
+}
+
 function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
-  const target = event.target;
+  // Find the actual interactive element instead of using event.target directly
+  const target = findInteractiveElement(event.target);
   const selectors = generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
 
@@ -82,6 +121,7 @@ function handleClick(event) {
 function handleChange(event) {
   if (!isRecording) return;
 
+  // For change events, use the target directly as it's already the input element
   const target = event.target;
   const selectors = generateSelectors(target, 'change');
 
@@ -99,6 +139,7 @@ function handleChange(event) {
 function handleInput(event) {
   if (!isRecording) return;
 
+  // For input events, use the target directly as it's already the input element
   const target = event.target;
   
   // Clear existing timer for this element
@@ -389,7 +430,9 @@ function activateElementPicker() {
     e.stopPropagation();
 
     if (currentElement) {
-      const selectors = generateSelectors(currentElement);
+      // Use findInteractiveElement for element picker as well
+      const interactiveElement = findInteractiveElement(currentElement);
+      const selectors = generateSelectors(interactiveElement);
       console.log('Selected element selectors:', selectors);
       
       // Derive value, text and a human-readable name (label text if available)
@@ -397,18 +440,18 @@ function activateElementPicker() {
       let text = null;
       let name = null;
 
-      const tagName = currentElement.tagName.toLowerCase();
+      const tagName = interactiveElement.tagName.toLowerCase();
       if (tagName === 'input' || tagName === 'textarea') {
-        value = currentElement.value;
+        value = interactiveElement.value;
         // Try label[for]
-        if (currentElement.id) {
-          const byFor = document.querySelector(`label[for='${currentElement.id}']`);
+        if (interactiveElement.id) {
+          const byFor = document.querySelector(`label[for='${interactiveElement.id}']`);
           const labelText = byFor?.innerText?.trim();
           if (labelText) name = labelText;
         }
         // Try preceding label siblings
         if (!name) {
-          let sib = currentElement.previousElementSibling;
+          let sib = interactiveElement.previousElementSibling;
           while (sib) {
             if (sib.tagName.toLowerCase() === 'label') {
               const t = sib.innerText?.trim();
@@ -418,11 +461,11 @@ function activateElementPicker() {
           }
         }
       } else {
-        text = currentElement.textContent?.trim();
+        text = interactiveElement.textContent?.trim();
       }
 
       if (!name) {
-        name = currentElement.getAttribute('aria-label') || currentElement.getAttribute('title') || null;
+        name = interactiveElement.getAttribute('aria-label') || interactiveElement.getAttribute('title') || null;
       }
       
       // Send to panel with value, text and name
