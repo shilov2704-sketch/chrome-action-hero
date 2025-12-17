@@ -65,11 +65,36 @@ function findInteractiveElement(element) {
   const interactiveSelectors = ['a', 'button', 'input', 'textarea', 'select'];
   const interactiveRoles = ['button', 'link', 'tab', 'menuitem', 'option'];
   
+  // Elements that should ALWAYS go up to find parent (non-interactive leaf elements)
+  const alwaysGoUpTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g'];
+  
+  // Patterns for container elements - should NOT stop at these, continue to their children
+  const containerPatterns = /-list|_list|List_|ModalWindowItem|_Root_[a-f0-9]+::[a-z0-9]+::0$/i;
+  
+  // Patterns for interactive/item elements - these are valid stopping points
+  const interactiveDataTestPatterns = /Button|Link|SwitchButton|Tab|MenuItem|_Root_[a-f0-9]+::[a-z0-9]+::[1-9]|Material_Root|Item_Root/i;
+  
+  const originalElement = element;
   let current = element;
+  let bestCandidate = null;
   
   while (current && current !== document.body) {
-    // Check if it's an interactive element
     const tagName = current.tagName?.toLowerCase();
+    const dataTest = current.getAttribute('data-test');
+    
+    // If current element is SVG or other non-interactive leaf element, always continue up
+    if (alwaysGoUpTags.includes(tagName)) {
+      current = current.parentElement;
+      continue;
+    }
+    
+    // Check if this is a container element we should skip
+    if (dataTest && containerPatterns.test(dataTest)) {
+      // This is a container, don't stop here - return best candidate or original
+      break;
+    }
+    
+    // Check if it's an interactive HTML element
     if (interactiveSelectors.includes(tagName)) {
       return current;
     }
@@ -85,17 +110,21 @@ function findInteractiveElement(element) {
       return current;
     }
     
-    // Check if it has data-test and looks like a clickable component (contains Button, Link, etc in data-test)
-    const dataTest = current.getAttribute('data-test');
-    if (dataTest && /Button|Link|Menu|Tab|Item/i.test(dataTest)) {
+    // Check if it has data-test and looks like a clickable component
+    if (dataTest && interactiveDataTestPatterns.test(dataTest)) {
       return current;
+    }
+    
+    // Store this as a potential candidate if it has a data-test attribute
+    if (dataTest && !bestCandidate) {
+      bestCandidate = current;
     }
     
     current = current.parentElement;
   }
   
-  // If no interactive element found, return the original element
-  return element;
+  // Return the best candidate found, or the original element
+  return bestCandidate || originalElement;
 }
 
 function handleClick(event) {
@@ -342,6 +371,71 @@ function generateARIASelector(element) {
 }
 
 function generateTextSelector(element) {
+  const tagName = element.tagName?.toLowerCase();
+  
+  // For input elements, check placeholder and associated label
+  if (tagName === 'input' || tagName === 'textarea') {
+    // Check placeholder first
+    const placeholder = element.getAttribute('placeholder');
+    if (placeholder && placeholder.trim().length > 0 && placeholder.trim().length < 50) {
+      return `text/${placeholder.trim()}`;
+    }
+    
+    // Check for associated label by 'for' attribute
+    if (element.id) {
+      const labelByFor = document.querySelector(`label[for='${element.id}']`);
+      if (labelByFor) {
+        const labelText = labelByFor.textContent?.trim();
+        if (labelText && labelText.length < 50) {
+          return `text/${labelText}`;
+        }
+      }
+    }
+    
+    // Check for parent label element
+    const parentLabel = element.closest('label');
+    if (parentLabel) {
+      // Get text from label, excluding the input's own text
+      const labelText = Array.from(parentLabel.childNodes)
+        .filter(node => node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && node !== element))
+        .map(node => node.textContent?.trim())
+        .filter(t => t)
+        .join(' ')
+        .trim();
+      if (labelText && labelText.length < 50) {
+        return `text/${labelText}`;
+      }
+    }
+    
+    // Check for preceding sibling label or span with text
+    let sibling = element.previousElementSibling;
+    while (sibling) {
+      const sibTagName = sibling.tagName?.toLowerCase();
+      if (sibTagName === 'label' || sibTagName === 'span') {
+        const sibText = sibling.textContent?.trim();
+        if (sibText && sibText.length < 50) {
+          return `text/${sibText}`;
+        }
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    
+    // Check parent's children for label before input
+    const parent = element.parentElement;
+    if (parent) {
+      const labelChild = parent.querySelector('label, span');
+      if (labelChild && labelChild !== element) {
+        const labelChildText = labelChild.textContent?.trim();
+        if (labelChildText && labelChildText.length < 50) {
+          return `text/${labelChildText}`;
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  // For other elements, use textContent
   const text = element.textContent?.trim();
   if (text && text.length < 50) {
     return `text/${text}`;
