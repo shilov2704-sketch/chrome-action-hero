@@ -66,13 +66,14 @@ function findInteractiveElement(element) {
   const interactiveRoles = ['button', 'link', 'tab', 'menuitem', 'option'];
   
   // Elements that should ALWAYS go up to find parent (non-interactive leaf elements)
-  const alwaysGoUpTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g'];
+  const alwaysGoUpTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p'];
   
   // Patterns for container elements - should NOT stop at these, continue to their children
-  const containerPatterns = /-list|_list|List_|ModalWindowItem|_Root_[a-f0-9]+::[a-z0-9]+::0$/i;
+  const containerPatterns = /-list|_list|List_|Container_|ModalWindowItem|_Root_[a-f0-9]+::[a-z0-9]+::0$/i;
   
   // Patterns for interactive/item elements - these are valid stopping points
-  const interactiveDataTestPatterns = /Button|Link|SwitchButton|Tab|MenuItem|_Root_[a-f0-9]+::[a-z0-9]+::[1-9]|Material_Root|Item_Root/i;
+  // More specific patterns to avoid false matches like "TabsStyledVertical" matching "Tab"
+  const interactiveDataTestPatterns = /^Button_|^Link_|^SwitchButton_|^Tab_|^MenuItem_|_Button_|_Link_|_SwitchButton_|_Tab_|_MenuItem_|_Root_[a-f0-9]+::[a-z0-9]+::[1-9]|Material_Root|Item_Root|ValuePresenter_|Presenter_/i;
   
   const originalElement = element;
   let current = element;
