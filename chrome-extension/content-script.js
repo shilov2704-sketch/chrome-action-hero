@@ -61,71 +61,39 @@ function stopRecording() {
 }
 
 function findInteractiveElement(element) {
-  // List of interactive elements and attributes
-  const interactiveSelectors = ['a', 'button', 'input', 'textarea', 'select'];
-  const interactiveRoles = ['button', 'link', 'tab', 'menuitem', 'option'];
+  // Elements that are non-interactive leaves - always go up to find parent
+  const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
   
-  // Elements that should ALWAYS go up to find parent (non-interactive leaf elements)
-  const alwaysGoUpTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p'];
-  
-  // Patterns for container elements - should NOT stop at these, continue to their children
-  const containerPatterns = /-list|_list|List_|Container_|ModalWindowItem|_Root_[a-f0-9]+::[a-z0-9]+::0$/i;
-  
-  // Patterns for interactive/item elements - these are valid stopping points
-  // More specific patterns to avoid false matches like "TabsStyledVertical" matching "Tab"
-  const interactiveDataTestPatterns = /^Button_|^Link_|^SwitchButton_|^Tab_|^MenuItem_|_Button_|_Link_|_SwitchButton_|_Tab_|_MenuItem_|_Root_[a-f0-9]+::[a-z0-9]+::[1-9]|Material_Root|Item_Root|ValuePresenter_|Presenter_/i;
-  
-  const originalElement = element;
   let current = element;
-  let bestCandidate = null;
   
+  // Step 1: If we're on a leaf element, go up until we find a non-leaf with data-test
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
-    const dataTest = current.getAttribute('data-test');
     
-    // If current element is SVG or other non-interactive leaf element, always continue up
-    if (alwaysGoUpTags.includes(tagName)) {
+    if (leafTags.includes(tagName)) {
       current = current.parentElement;
       continue;
     }
     
-    // Check if this is a container element we should skip
-    if (dataTest && containerPatterns.test(dataTest)) {
-      // This is a container, don't stop here - return best candidate or original
-      break;
-    }
-    
-    // Check if it's an interactive HTML element
-    if (interactiveSelectors.includes(tagName)) {
+    // Found a non-leaf element
+    break;
+  }
+  
+  // Step 2: If current element has data-test, use it directly
+  if (current && current.getAttribute('data-test')) {
+    return current;
+  }
+  
+  // Step 3: If no data-test, look up for the closest element with data-test
+  while (current && current !== document.body) {
+    if (current.getAttribute('data-test')) {
       return current;
     }
-    
-    // Check if it has an interactive role
-    const role = current.getAttribute('role');
-    if (role && interactiveRoles.includes(role)) {
-      return current;
-    }
-    
-    // Check if it has onclick or is contenteditable
-    if (current.hasAttribute('onclick') || current.hasAttribute('contenteditable')) {
-      return current;
-    }
-    
-    // Check if it has data-test and looks like a clickable component
-    if (dataTest && interactiveDataTestPatterns.test(dataTest)) {
-      return current;
-    }
-    
-    // Store this as a potential candidate if it has a data-test attribute
-    if (dataTest && !bestCandidate) {
-      bestCandidate = current;
-    }
-    
     current = current.parentElement;
   }
   
-  // Return the best candidate found, or the original element
-  return bestCandidate || originalElement;
+  // Fallback to original element
+  return element;
 }
 
 function handleClick(event) {
