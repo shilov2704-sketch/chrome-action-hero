@@ -682,131 +682,256 @@ async function executeStep(step, settings) {
       await waitForNavigation();
       break;
 
-    case 'click':
+    case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
-        // Scroll element into view
-        clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Focus the element first (important for inputs that open dropdowns)
-        if (typeof clickElement.focus === 'function') {
-          clickElement.focus();
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        // Use multiple click methods for better compatibility
-        const rect = clickElement.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-        
-        // Dispatch focusin event
-        clickElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-        
-        // Dispatch pointer events (for modern React apps)
-        clickElement.dispatchEvent(new PointerEvent('pointerdown', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-          pointerId: 1,
-          pointerType: 'mouse'
-        }));
-        
-        // Dispatch mouse events for frameworks that listen to them
-        clickElement.dispatchEvent(new MouseEvent('mousedown', { 
-          bubbles: true, 
-          cancelable: true,
-          view: window,
-          clientX: x, 
-          clientY: y 
-        }));
-        
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        clickElement.dispatchEvent(new PointerEvent('pointerup', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y,
-          pointerId: 1,
-          pointerType: 'mouse'
-        }));
-        
-        clickElement.dispatchEvent(new MouseEvent('mouseup', { 
-          bubbles: true, 
-          cancelable: true,
-          view: window,
-          clientX: x, 
-          clientY: y 
-        }));
-        
-        clickElement.dispatchEvent(new MouseEvent('click', { 
-          bubbles: true, 
-          cancelable: true,
-          view: window,
-          clientX: x, 
-          clientY: y 
-        }));
-        
-        // Try native click as backup
-        clickElement.click();
-        
-        // Additional wait to ensure click processed
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
-      break;
+        // Prefer clicking within a meaningful container (e.g. list items) but dispatch events
+        // on the real element under the pointer so React handlers bound to child nodes still fire.
+        let baseElement = clickElement;
 
-    case 'change':
-      const changeElement = await waitForElement(step.selectors, settings.timeout || 5000);
-      if (changeElement) {
-        // Focus the element first
-        if (typeof changeElement.focus === 'function') {
-          changeElement.focus();
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        // Clear existing value
-        const tagName = changeElement.tagName?.toLowerCase();
-        if (tagName === 'input' || tagName === 'textarea') {
-          // Use native value setter to bypass React's synthetic event system
-          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-            'value'
-          )?.set;
-          
-          if (nativeInputValueSetter) {
-            nativeInputValueSetter.call(changeElement, step.value);
-          } else {
-            changeElement.value = step.value;
+        // If the recorded selector points to an inner node, climb to a list-item container if present
+        let candidate = clickElement;
+        const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
+        while (candidate && candidate !== document.body) {
+          const dt = candidate.getAttribute?.('data-test');
+          if (dt && listItemPatterns.test(dt)) {
+            baseElement = candidate;
+            break;
           }
-          
-          // Dispatch input event (React listens to this)
-          changeElement.dispatchEvent(new InputEvent('input', { 
-            bubbles: true, 
-            cancelable: true,
-            inputType: 'insertText',
-            data: step.value
-          }));
-          
-          // Dispatch change event
-          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
-          
-          // Dispatch blur to trigger form validation
-          await new Promise(resolve => setTimeout(resolve, 50));
-          changeElement.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
-        } else if (changeElement.isContentEditable || changeElement.getAttribute('contenteditable') === 'true') {
-          changeElement.textContent = step.value;
-          changeElement.dispatchEvent(new InputEvent('input', { bubbles: true }));
-          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
+          candidate = candidate.parentElement;
+        }
+
+        // Scroll base element into view
+        baseElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        const rect = baseElement.getBoundingClientRect();
+        const hasOffsets = typeof step.offsetX === 'number' && typeof step.offsetY === 'number';
+
+        // Use recorded offsets when available (critical for dense list items)
+        const ox = hasOffsets
+          ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1))
+          : rect.width / 2;
+        const oy = hasOffsets
+          ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1))
+          : rect.height / 2;
+
+        const x = rect.left + ox;
+        const y = rect.top + oy;
+
+        // Pick the real DOM target at the click point (ensures correct event.target)
+        let dispatchTarget = document.elementFromPoint(x, y);
+        if (!dispatchTarget || !baseElement.contains(dispatchTarget)) {
+          dispatchTarget = baseElement;
+        }
+
+        // Focus first (important for custom selects / inputs)
+        if (typeof baseElement.focus === 'function') {
+          baseElement.focus();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+
+        // Dispatch hover-ish events first (some UIs rely on pointerover/mouseover)
+        const mouseBase = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y
+        };
+
+        dispatchTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+
+        if (window.PointerEvent) {
+          const pointerBase = {
+            ...mouseBase,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+            button: 0,
+            buttons: 1
+          };
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerover', pointerBase));
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', pointerBase));
+
+          await new Promise((resolve) => setTimeout(resolve, 30));
+
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', pointerBase));
+        }
+
+        dispatchTarget.dispatchEvent(new MouseEvent('mouseover', mouseBase));
+        dispatchTarget.dispatchEvent(new MouseEvent('mousemove', mouseBase));
+
+        dispatchTarget.dispatchEvent(
+          new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 })
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        dispatchTarget.dispatchEvent(
+          new MouseEvent('mouseup', { ...mouseBase, button: 0, buttons: 0 })
+        );
+
+        dispatchTarget.dispatchEvent(
+          new MouseEvent('click', { ...mouseBase, button: 0, buttons: 0, detail: 1 })
+        );
+
+        // Native click as backup (still important for some components)
+        if (typeof dispatchTarget.click === 'function') {
+          dispatchTarget.click();
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      break;
+    }
+
+    case 'change': {
+      const changeElementRaw = await waitForElement(step.selectors, settings.timeout || 5000);
+      if (changeElementRaw) {
+        // Some apps put data-test on a wrapper; try to find the real editable element.
+        let editable = changeElementRaw;
+        const rawTag = editable.tagName?.toLowerCase();
+
+        if (rawTag !== 'input' && rawTag !== 'textarea' && !editable.isContentEditable && editable.getAttribute?.('contenteditable') !== 'true') {
+          const descendant = editable.querySelector?.('textarea, input, [contenteditable="true"], [role="textbox"]');
+          if (descendant) editable = descendant;
+        }
+
+        // Ensure visible & focused
+        editable.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        if (typeof editable.focus === 'function') {
+          editable.focus();
+          editable.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+
+        const tagName = editable.tagName?.toLowerCase();
+        const role = editable.getAttribute?.('role');
+        const isInputLike = tagName === 'input' || tagName === 'textarea';
+        const isContentEditable = editable.isContentEditable || editable.getAttribute?.('contenteditable') === 'true';
+        const isRoleTextbox = role === 'textbox';
+
+        const normalize = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+        if (isInputLike) {
+          const proto = tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+
+          // beforeinput -> input (React listens here) -> change
+          try {
+            editable.dispatchEvent(
+              new InputEvent('beforeinput', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertReplacementText',
+                data: step.value
+              })
+            );
+          } catch (e) {
+            // ignore
+          }
+
+          if (nativeSetter) nativeSetter.call(editable, step.value);
+          else editable.value = step.value;
+
+          try {
+            editable.dispatchEvent(
+              new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: step.value,
+                composed: true
+              })
+            );
+          } catch (e) {
+            editable.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          // Some libs only listen to plain Event('input')
+          editable.dispatchEvent(new Event('input', { bubbles: true }));
+          editable.dispatchEvent(new Event('change', { bubbles: true }));
+
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          editable.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+          editable.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
+
+          // Validate that the value actually set (prevents false-green)
+          if (normalize(editable.value) !== normalize(step.value)) {
+            throw new Error(`Failed to set input value. Expected: "${step.value}", Actual: "${editable.value}"`);
+          }
+        } else if (isContentEditable || isRoleTextbox) {
+          // Contenteditable / role=textbox editors often require real selection + insertText.
+          const selectAll = () => {
+            try {
+              const sel = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(editable);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            } catch (e) {
+              // ignore
+            }
+          };
+
+          try {
+            editable.dispatchEvent(
+              new InputEvent('beforeinput', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertReplacementText',
+                data: step.value
+              })
+            );
+          } catch (e) {
+            // ignore
+          }
+
+          selectAll();
+          let inserted = false;
+          try {
+            inserted = document.execCommand && document.execCommand('insertText', false, step.value);
+          } catch (e) {
+            inserted = false;
+          }
+          if (!inserted) {
+            editable.textContent = step.value;
+          }
+
+          try {
+            editable.dispatchEvent(
+              new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: step.value,
+                composed: true
+              })
+            );
+          } catch (e) {
+            editable.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          editable.dispatchEvent(new Event('input', { bubbles: true }));
+          editable.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // Validate (normalized) to avoid false-green
+          const actualText = normalize(editable.textContent);
+          if (actualText !== normalize(step.value)) {
+            throw new Error(`Failed to set textbox text. Expected: "${step.value}", Actual: "${editable.textContent?.trim()}"`);
+          }
         } else {
-          changeElement.textContent = step.value;
-          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
+          // Fallback (rare): just set textContent
+          editable.textContent = step.value;
+          editable.dispatchEvent(new Event('input', { bubbles: true }));
+          editable.dispatchEvent(new Event('change', { bubbles: true }));
         }
       }
       break;
+    }
 
     case 'keyDown':
       document.dispatchEvent(new KeyboardEvent('keydown', { key: step.key }));
