@@ -64,9 +64,12 @@ function findInteractiveElement(element) {
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
   
+  // Patterns for list item containers - we want to record these for list selections
+  const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
+  
   let current = element;
   
-  // Step 1: If we're on a leaf element, go up until we find a non-leaf with data-test
+  // Step 1: If we're on a leaf element, go up until we find a non-leaf
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
     
@@ -79,12 +82,23 @@ function findInteractiveElement(element) {
     break;
   }
   
-  // Step 2: If current element has data-test, use it directly
+  // Step 2: Check if we're inside a list item - if so, find the list item container
+  let listItemCandidate = current;
+  while (listItemCandidate && listItemCandidate !== document.body) {
+    const dataTest = listItemCandidate.getAttribute('data-test');
+    if (dataTest && listItemPatterns.test(dataTest)) {
+      // Found a list item container - use it
+      return listItemCandidate;
+    }
+    listItemCandidate = listItemCandidate.parentElement;
+  }
+  
+  // Step 3: If current element has data-test, use it directly
   if (current && current.getAttribute('data-test')) {
     return current;
   }
   
-  // Step 3: If no data-test, look up for the closest element with data-test
+  // Step 4: If no data-test, look up for the closest element with data-test
   while (current && current !== document.body) {
     if (current.getAttribute('data-test')) {
       return current;
@@ -404,6 +418,21 @@ function generateTextSelector(element) {
     return null;
   }
   
+  // For list items and other container elements, find text within child spans/divs
+  const dataTest = element.getAttribute('data-test');
+  if (dataTest && /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i.test(dataTest)) {
+    // Look for text in child elements
+    const textElements = element.querySelectorAll('span, p, div');
+    for (const textEl of textElements) {
+      // Skip elements with many children (containers)
+      if (textEl.children.length > 0) continue;
+      const childText = textEl.textContent?.trim();
+      if (childText && childText.length > 0 && childText.length < 50) {
+        return `text/${childText}`;
+      }
+    }
+  }
+  
   // For other elements, use textContent
   const text = element.textContent?.trim();
   if (text && text.length < 50) {
@@ -660,21 +689,50 @@ async function executeStep(step, settings) {
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
         
+        // Focus the element first (important for inputs that open dropdowns)
+        if (typeof clickElement.focus === 'function') {
+          clickElement.focus();
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         // Use multiple click methods for better compatibility
         const rect = clickElement.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         
-        // Try native click first
-        clickElement.click();
+        // Dispatch focusin event
+        clickElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
         
-        // Also dispatch mouse events for frameworks that listen to them
+        // Dispatch pointer events (for modern React apps)
+        clickElement.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse'
+        }));
+        
+        // Dispatch mouse events for frameworks that listen to them
         clickElement.dispatchEvent(new MouseEvent('mousedown', { 
           bubbles: true, 
           cancelable: true,
           view: window,
           clientX: x, 
           clientY: y 
+        }));
+        
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        clickElement.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse'
         }));
         
         clickElement.dispatchEvent(new MouseEvent('mouseup', { 
@@ -693,22 +751,60 @@ async function executeStep(step, settings) {
           clientY: y 
         }));
         
+        // Try native click as backup
+        clickElement.click();
+        
         // Additional wait to ensure click processed
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
       break;
 
     case 'change':
-      const changeElement = findElement(step.selectors);
+      const changeElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (changeElement) {
-        // Handle different element types
-        if (changeElement.value !== undefined) {
-          changeElement.value = step.value;
+        // Focus the element first
+        if (typeof changeElement.focus === 'function') {
+          changeElement.focus();
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        // Clear existing value
+        const tagName = changeElement.tagName?.toLowerCase();
+        if (tagName === 'input' || tagName === 'textarea') {
+          // Use native value setter to bypass React's synthetic event system
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+            'value'
+          )?.set;
+          
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(changeElement, step.value);
+          } else {
+            changeElement.value = step.value;
+          }
+          
+          // Dispatch input event (React listens to this)
+          changeElement.dispatchEvent(new InputEvent('input', { 
+            bubbles: true, 
+            cancelable: true,
+            inputType: 'insertText',
+            data: step.value
+          }));
+          
+          // Dispatch change event
+          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          // Dispatch blur to trigger form validation
+          await new Promise(resolve => setTimeout(resolve, 50));
+          changeElement.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+        } else if (changeElement.isContentEditable || changeElement.getAttribute('contenteditable') === 'true') {
+          changeElement.textContent = step.value;
+          changeElement.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
           changeElement.textContent = step.value;
+          changeElement.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        changeElement.dispatchEvent(new Event('change', { bubbles: true }));
-        changeElement.dispatchEvent(new Event('input', { bubbles: true }));
       }
       break;
 
