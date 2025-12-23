@@ -169,7 +169,9 @@
             <option value="slow">Slow</option>
           </select>
           <input type="number" id="replayTimeout" class="input" min="5000" max="30000" value="5000" step="1000" 
-                 placeholder="Timeout (ms)" style="width: 120px; margin-right: 10px;" title="Timeout для каждого шага (5000-30000 мс)">
+                 placeholder="Timeout (ms)" style="width: 100px; margin-right: 10px;" title="Timeout для каждого шага (5000-30000 мс)">
+          <input type="number" id="stepDelay" class="input" min="0" max="5000" value="100" step="100" 
+                 placeholder="Delay (ms)" style="width: 100px; margin-right: 10px;" title="Задержка между шагами (0-5000 мс)">
           <button id="replayBtn" class="btn btn-primary">
             <span class="icon">▶️</span> Replay
           </button>

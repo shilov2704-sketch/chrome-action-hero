@@ -10,7 +10,8 @@ const state = {
   selectedSelectors: ['css', 'xpath'],
   replaySettings: {
     throttling: 'none',
-    timeout: 5000
+    timeout: 5000,
+    stepDelay: 100
   },
   theme: 'light'
 };
@@ -168,8 +169,10 @@ function initializeEventListeners() {
   document.getElementById('replayBtn').addEventListener('click', () => {
     const speed = document.getElementById('replaySpeed').value;
     const timeout = parseInt(document.getElementById('replayTimeout').value) || 5000;
-    // Update replay settings with timeout
+    const stepDelay = parseInt(document.getElementById('stepDelay').value) || 100;
+    // Update replay settings with timeout and stepDelay
     state.replaySettings.timeout = timeout;
+    state.replaySettings.stepDelay = stepDelay;
     replayRecording(speed);
     
     // Show Stop Replay button, hide Replay button
