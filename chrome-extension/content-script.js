@@ -26,6 +26,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Hover detection state
+let hoverDebounceTimer = null;
+let lastHoveredElement = null;
+
 function startRecording(selectors) {
   isRecording = true;
   selectedSelectors = selectors;
@@ -43,6 +47,7 @@ function startRecording(selectors) {
   document.addEventListener('input', handleInput, true);
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
+  document.addEventListener('mouseover', handleHover, true);
 
   console.log('Recording started');
 }
@@ -56,6 +61,14 @@ function stopRecording() {
   document.removeEventListener('input', handleInput, true);
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
+  document.removeEventListener('mouseover', handleHover, true);
+  
+  // Clear hover state
+  if (hoverDebounceTimer) {
+    clearTimeout(hoverDebounceTimer);
+    hoverDebounceTimer = null;
+  }
+  lastHoveredElement = null;
 
   console.log('Recording stopped', recordedEvents);
 }
@@ -206,6 +219,65 @@ function handleKeyUp(event) {
   };
 
   recordEvent(keyEvent);
+}
+
+// Patterns for hover-triggered elements (dropdowns, menus, tooltips)
+const hoverTriggerPatterns = /dropdown|menu|tooltip|popover|hover|trigger|nav-item|submenu/i;
+
+function handleHover(event) {
+  if (!isRecording || isPickingElement) return;
+  
+  const target = event.target;
+  
+  // Clear existing debounce timer
+  if (hoverDebounceTimer) {
+    clearTimeout(hoverDebounceTimer);
+  }
+  
+  // Debounce hover events (300ms)
+  hoverDebounceTimer = setTimeout(() => {
+    // Find interactive element
+    const interactiveElement = findInteractiveElement(target);
+    
+    // Skip if same element as last hover
+    if (interactiveElement === lastHoveredElement) {
+      return;
+    }
+    
+    // Check if this element or its parent could trigger hover behavior
+    const dataTest = interactiveElement.getAttribute('data-test') || '';
+    const className = interactiveElement.className || '';
+    const role = interactiveElement.getAttribute('role') || '';
+    const ariaHasPopup = interactiveElement.getAttribute('aria-haspopup');
+    const ariaExpanded = interactiveElement.getAttribute('aria-expanded');
+    
+    // Check for hover-triggered elements
+    const isHoverTrigger = 
+      hoverTriggerPatterns.test(dataTest) ||
+      hoverTriggerPatterns.test(className) ||
+      ariaHasPopup === 'true' ||
+      ariaExpanded !== null ||
+      role === 'menuitem' ||
+      role === 'button' && ariaHasPopup;
+    
+    if (isHoverTrigger) {
+      lastHoveredElement = interactiveElement;
+      
+      const selectors = generateSelectors(interactiveElement, 'hover');
+      const rect = interactiveElement.getBoundingClientRect();
+      
+      const hoverEvent = {
+        type: 'hover',
+        target: 'main',
+        selectors: selectors,
+        offsetX: rect.width / 2,
+        offsetY: rect.height / 2,
+        url: window.location.href
+      };
+      
+      recordEvent(hoverEvent);
+    }
+  }, 300);
 }
 
 function recordViewport() {
@@ -599,7 +671,10 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
   console.log('Replaying recording:', recording.title);
   
   isReplaying = true;
-  const delay = speed === 'slow' ? 1000 : 100;
+  
+  // Use configurable stepDelay from settings, fallback to speed-based delay
+  const baseDelay = speed === 'slow' ? 1000 : 100;
+  const delay = settings.stepDelay !== undefined ? settings.stepDelay : baseDelay;
 
   for (let i = 0; i < recording.steps.length; i++) {
     const actualIndex = startIndex + i;
@@ -618,6 +693,7 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
       status: 'executing'
     });
     
+    // Apply step delay
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
@@ -940,6 +1016,51 @@ async function executeStep(step, settings) {
     case 'keyUp':
       document.dispatchEvent(new KeyboardEvent('keyup', { key: step.key }));
       break;
+
+    case 'hover': {
+      const hoverElement = await waitForElement(step.selectors, settings.timeout || 5000);
+      if (hoverElement) {
+        // Scroll element into view
+        hoverElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        const rect = hoverElement.getBoundingClientRect();
+        const x = rect.left + (step.offsetX || rect.width / 2);
+        const y = rect.top + (step.offsetY || rect.height / 2);
+        
+        const mouseBase = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y
+        };
+        
+        // Dispatch hover events
+        if (window.PointerEvent) {
+          hoverElement.dispatchEvent(new PointerEvent('pointerenter', {
+            ...mouseBase,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true
+          }));
+          hoverElement.dispatchEvent(new PointerEvent('pointerover', {
+            ...mouseBase,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true
+          }));
+        }
+        
+        hoverElement.dispatchEvent(new MouseEvent('mouseenter', mouseBase));
+        hoverElement.dispatchEvent(new MouseEvent('mouseover', mouseBase));
+        hoverElement.dispatchEvent(new MouseEvent('mousemove', mouseBase));
+        
+        // Wait for dropdown/menu to appear
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+      break;
+    }
 
     case 'waitForElement':
       const element = await waitForElement(step.selectors, settings.timeout || 5000);
