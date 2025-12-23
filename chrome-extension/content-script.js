@@ -761,30 +761,43 @@ async function executeStep(step, settings) {
     case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
-        // Prefer clicking within a meaningful container (e.g. list items) but dispatch events
-        // on the real element under the pointer so React handlers bound to child nodes still fire.
-        let baseElement = clickElement;
-
-        // If the recorded selector points to an inner node, climb to a list-item container if present
-        let candidate = clickElement;
         const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
-        while (candidate && candidate !== document.body) {
-          const dt = candidate.getAttribute?.('data-test');
-          if (dt && listItemPatterns.test(dt)) {
-            baseElement = candidate;
-            break;
+
+        // IMPORTANT: offsets are relative to the element that was recorded.
+        // For backward compatibility with older recordings that stored a child node selector,
+        // only climb to list-item containers if the RECORDED selector itself was a list-item.
+        const recordedDataTest = (() => {
+          if (!Array.isArray(step.selectors)) return null;
+          for (const arr of step.selectors) {
+            const s = arr?.[0];
+            if (typeof s !== 'string') continue;
+            const m = s.match(/^xpath\/\/\*\[@data-test='([^']+)'\]$/);
+            if (m) return m[1];
           }
-          candidate = candidate.parentElement;
+          return null;
+        })();
+
+        let baseElement = clickElement;
+        if (recordedDataTest && listItemPatterns.test(recordedDataTest)) {
+          // Recorded element was a list item container, so we can safely climb
+          let candidate = clickElement;
+          while (candidate && candidate !== document.body) {
+            const dt = candidate.getAttribute?.('data-test');
+            if (dt && listItemPatterns.test(dt)) {
+              baseElement = candidate;
+              break;
+            }
+            candidate = candidate.parentElement;
+          }
         }
 
-        // Scroll base element into view
-        baseElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        // Scroll into view (use 'auto' to avoid timing issues)
+        baseElement.scrollIntoView?.({ behavior: 'auto', block: 'center' });
+        await new Promise((resolve) => setTimeout(resolve, 80));
 
         const rect = baseElement.getBoundingClientRect();
         const hasOffsets = typeof step.offsetX === 'number' && typeof step.offsetY === 'number';
 
-        // Use recorded offsets when available (critical for dense list items)
         const ox = hasOffsets
           ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1))
           : rect.width / 2;
@@ -801,13 +814,20 @@ async function executeStep(step, settings) {
           dispatchTarget = baseElement;
         }
 
-        // Focus first (important for custom selects / inputs)
-        if (typeof baseElement.focus === 'function') {
+        // Focus/click first (important for custom selects / inputs)
+        if (typeof dispatchTarget.focus === 'function') {
+          dispatchTarget.focus();
+          dispatchTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        } else if (typeof baseElement.focus === 'function') {
           baseElement.focus();
-          await new Promise((resolve) => setTimeout(resolve, 30));
+          baseElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
         }
 
-        // Dispatch hover-ish events first (some UIs rely on pointerover/mouseover)
+        if (typeof dispatchTarget.click === 'function') {
+          // Some widgets open only on a real click-to-focus flow
+          try { dispatchTarget.click(); } catch (e) {}
+        }
+
         const mouseBase = {
           bubbles: true,
           cancelable: true,
@@ -816,48 +836,31 @@ async function executeStep(step, settings) {
           clientY: y
         };
 
-        dispatchTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-
+        // Hover-ish events first
         if (window.PointerEvent) {
-          const pointerBase = {
+          const pointerCommon = {
             ...mouseBase,
             pointerId: 1,
             pointerType: 'mouse',
-            isPrimary: true,
-            button: 0,
-            buttons: 1
+            isPrimary: true
           };
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerover', pointerBase));
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', pointerBase));
-
-          await new Promise((resolve) => setTimeout(resolve, 30));
-
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', pointerBase));
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerenter', { ...pointerCommon, button: 0, buttons: 0 }));
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerover', { ...pointerCommon, button: 0, buttons: 0 }));
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', { ...pointerCommon, button: 0, buttons: 1 }));
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', { ...pointerCommon, button: 0, buttons: 0 }));
         }
 
+        dispatchTarget.dispatchEvent(new MouseEvent('mouseenter', mouseBase));
         dispatchTarget.dispatchEvent(new MouseEvent('mouseover', mouseBase));
         dispatchTarget.dispatchEvent(new MouseEvent('mousemove', mouseBase));
 
-        dispatchTarget.dispatchEvent(
-          new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 })
-        );
+        dispatchTarget.dispatchEvent(new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        dispatchTarget.dispatchEvent(new MouseEvent('mouseup', { ...mouseBase, button: 0, buttons: 0 }));
+        dispatchTarget.dispatchEvent(new MouseEvent('click', { ...mouseBase, button: 0, buttons: 0, detail: 1 }));
 
-        await new Promise((resolve) => setTimeout(resolve, 30));
-
-        dispatchTarget.dispatchEvent(
-          new MouseEvent('mouseup', { ...mouseBase, button: 0, buttons: 0 })
-        );
-
-        dispatchTarget.dispatchEvent(
-          new MouseEvent('click', { ...mouseBase, button: 0, buttons: 0, detail: 1 })
-        );
-
-        // Native click as backup (still important for some components)
-        if (typeof dispatchTarget.click === 'function') {
-          dispatchTarget.click();
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, 120));
       }
       break;
     }
@@ -875,8 +878,14 @@ async function executeStep(step, settings) {
         }
 
         // Ensure visible & focused
-        editable.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        editable.scrollIntoView?.({ behavior: 'auto', block: 'center' });
+        await new Promise((resolve) => setTimeout(resolve, 60));
+
+        // Some editors require a real click to place caret
+        if (typeof editable.click === 'function') {
+          try { editable.click(); } catch (e) {}
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
 
         if (typeof editable.focus === 'function') {
           editable.focus();
@@ -896,6 +905,8 @@ async function executeStep(step, settings) {
           const proto = tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
           const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 
+          const prevValue = editable.value;
+
           // beforeinput -> input (React listens here) -> change
           try {
             editable.dispatchEvent(
@@ -913,6 +924,15 @@ async function executeStep(step, settings) {
           if (nativeSetter) nativeSetter.call(editable, step.value);
           else editable.value = step.value;
 
+          // React internal value tracker (prevents false-green where DOM value changes but React state doesn't)
+          try {
+            const tracker = editable._valueTracker;
+            if (tracker) tracker.setValue(prevValue);
+          } catch (e) {
+            // ignore
+          }
+
+          // Fire both InputEvent and plain Event for broad compatibility
           try {
             editable.dispatchEvent(
               new InputEvent('input', {
@@ -927,7 +947,6 @@ async function executeStep(step, settings) {
             editable.dispatchEvent(new Event('input', { bubbles: true }));
           }
 
-          // Some libs only listen to plain Event('input')
           editable.dispatchEvent(new Event('input', { bubbles: true }));
           editable.dispatchEvent(new Event('change', { bubbles: true }));
 
@@ -1108,12 +1127,22 @@ function findElement(selectors) {
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    
+
     if (selector.startsWith('aria/')) {
       const ariaLabel = selector.replace('aria/', '');
       try {
-        const element = document.querySelector(`[aria-label="${ariaLabel}"]`) || 
-                       document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
+        // Support raw attribute/role queries like aria/[role="textbox"]
+        if (ariaLabel.trim().startsWith('[')) {
+          const el = document.querySelector(ariaLabel.trim());
+          if (el) {
+            console.log('Found element using ARIA query:', ariaLabel);
+            return el;
+          }
+        }
+
+        const element =
+          document.querySelector(`[aria-label="${ariaLabel}"]`) ||
+          document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
         if (element) {
           console.log('Found element using ARIA:', ariaLabel);
           return element;
