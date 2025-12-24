@@ -53,6 +53,9 @@ function startRecording(selectors) {
 }
 
 function stopRecording() {
+  // Flush any pending debounced input before stopping
+  flushPendingInputEvents();
+
   isRecording = false;
 
   // Remove event listeners
@@ -62,7 +65,7 @@ function stopRecording() {
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
   document.removeEventListener('mouseover', handleHover, true);
-  
+
   // Clear hover state
   if (hoverDebounceTimer) {
     clearTimeout(hoverDebounceTimer);
@@ -73,61 +76,145 @@ function stopRecording() {
   console.log('Recording stopped', recordedEvents);
 }
 
-function findInteractiveElement(element) {
+function isElementVisible(el) {
+  if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function pickBestInteractiveFromEvent(event) {
+  if (!event) return null;
+
+  const leafTags = new Set([
+    'svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g',
+    'p', 'strong', 'em', 'b', 'small'
+  ]);
+
+  // Prefer “real” item targets, avoid big containers
+  const preferredDataTest = (dt) => {
+    if (!dt) return false;
+    return (
+      /^::[a-z0-9]+::\d+$/i.test(dt) ||
+      /(?:^|_)ListItem(?:_|$)|ListItemRoot|modal-list-element-\d+|Material_Root/i.test(dt)
+    );
+  };
+
+  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot/i;
+
+  const path = typeof event.composedPath === 'function'
+    ? event.composedPath().filter((n) => n && n.nodeType === Node.ELEMENT_NODE)
+    : [];
+
+  // Fallback path from the real click point
+  if (path.length === 0 && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    let el = document.elementFromPoint(event.clientX, event.clientY);
+    while (el && el !== document.body) {
+      path.push(el);
+      el = el.parentElement;
+    }
+  }
+
+  // 1) Best match: preferred data-test (closest in the composed path)
+  for (const el of path) {
+    const tag = el.tagName?.toLowerCase();
+    if (leafTags.has(tag)) continue;
+    const dt = el.getAttribute?.('data-test');
+    if (dt && preferredDataTest(dt)) return el;
+  }
+
+  // 2) Next best: any data-test that is not a known container
+  for (const el of path) {
+    const tag = el.tagName?.toLowerCase();
+    if (leafTags.has(tag)) continue;
+    const dt = el.getAttribute?.('data-test');
+    if (dt && !containerDataTest.test(dt)) return el;
+  }
+
+  return null;
+}
+
+function findInteractiveElement(element, event = null) {
+  const fromEvent = pickBestInteractiveFromEvent(event);
+  if (fromEvent) return fromEvent;
+
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
-  
-  // Patterns for list item containers - we want to record these for list selections
-  const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
-  
+
+  // Narrow list-item patterns (avoid catching modal/container roots)
+  const listItemPatterns = /(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i;
+
   let current = element;
-  
+
   // Step 1: If we're on a leaf element, go up until we find a non-leaf
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
-    
+
     if (leafTags.includes(tagName)) {
       current = current.parentElement;
       continue;
     }
-    
-    // Found a non-leaf element
+
     break;
   }
-  
-  // Step 2: Check if we're inside a list item - if so, find the list item container
+
+  // Step 2: If we're inside a list item - pick the nearest list-item container
   let listItemCandidate = current;
   while (listItemCandidate && listItemCandidate !== document.body) {
     const dataTest = listItemCandidate.getAttribute('data-test');
     if (dataTest && listItemPatterns.test(dataTest)) {
-      // Found a list item container - use it
       return listItemCandidate;
     }
     listItemCandidate = listItemCandidate.parentElement;
   }
-  
-  // Step 3: If current element has data-test, use it directly
-  if (current && current.getAttribute('data-test')) {
-    return current;
-  }
-  
-  // Step 4: If no data-test, look up for the closest element with data-test
+
+  // Step 3: Prefer the nearest element with data-test
   while (current && current !== document.body) {
-    if (current.getAttribute('data-test')) {
+    if (current.getAttribute && current.getAttribute('data-test')) {
       return current;
     }
     current = current.parentElement;
   }
-  
-  // Fallback to original element
+
+  // Fallback
   return element;
+}
+
+function flushPendingInputEvents() {
+  if (!isRecording) return;
+
+  for (const [target, timer] of Array.from(inputDebounceTimers.entries())) {
+    try {
+      clearTimeout(timer);
+      inputDebounceTimers.delete(target);
+
+      if (!target || !target.isConnected) continue;
+
+      const selectors = generateSelectors(target, 'change');
+      const value = target.value !== undefined ? target.value : target.textContent;
+
+      recordEvent({
+        type: 'change',
+        value: value,
+        selectors: selectors,
+        target: 'main',
+        url: window.location.href
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
 }
 
 function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
+  // Ensure pending input debounces are recorded BEFORE the click (fixes textarea "not saved" cases)
+  flushPendingInputEvents();
+
   // Find the actual interactive element instead of using event.target directly
-  const target = findInteractiveElement(event.target);
+  const target = findInteractiveElement(event.target, event);
   const selectors = generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
 
