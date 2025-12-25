@@ -85,27 +85,13 @@ function pickBestInteractiveFromEvent(event) {
     'p', 'strong', 'em', 'b', 'small'
   ]);
 
-  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot/i;
+  // Containers that should NEVER be selected - these are layout wrappers
+  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer|_Container_|_Root_.*::[a-z0-9]+::0$/i;
 
-  const scoreDataTest = (dt) => {
-    if (!dt) return -1;
-    if (containerDataTest.test(dt)) return -10000;
-
-    let score = 0;
-
-    // Highly specific interactive components
-    if (/MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i.test(dt)) score += 200;
-    if (/(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i.test(dt)) score += 160;
-    if (/Button|Tab|Option|Select|Dropdown|Popover|Dialog|CheckBox|Radio|Input|TextArea|Textbox/i.test(dt)) score += 120;
-
-    // Generic anonymous nodes like ::abc123::4 are often layout wrappers/containers
-    if (/^::[a-z0-9]+::\d+$/i.test(dt)) score += 5;
-
-    // Heuristic: underscore-heavy and longer IDs tend to be more specific
-    if (dt.includes('_')) score += 25;
-    score += Math.min(dt.length, 80) / 8;
-
-    return score;
+  // Check if data-test indicates an interactive component (Button, MenuItem, etc.)
+  const isInteractiveComponent = (dt) => {
+    if (!dt) return false;
+    return /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i.test(dt);
   };
 
   const getPathFromPoint = () => {
@@ -129,7 +115,7 @@ function pickBestInteractiveFromEvent(event) {
     candidates.push(el);
   };
 
-  // 1) composedPath (when available)
+  // 1) composedPath (when available) - elements are ordered from target (innermost) to window
   if (typeof event.composedPath === 'function') {
     const p = event.composedPath();
     for (const n of p) pushEl(n);
@@ -138,35 +124,35 @@ function pickBestInteractiveFromEvent(event) {
   // 2) elementFromPoint fallback (helps with retargeting / weird overlays)
   for (const n of getPathFromPoint()) pushEl(n);
 
-  let best = null;
-  let bestScore = -1;
+  // Strategy: Find the FIRST (closest to click) interactive element with data-test
+  // Skip leaf tags and containers, prioritize Button_, MenuItem_, etc.
+  
+  let firstInteractive = null;  // First Button_, MenuItem_, etc.
+  let firstWithDataTest = null; // First element with any data-test (non-container)
 
   for (const el of candidates) {
     const tag = el.tagName?.toLowerCase();
     if (leafTags.has(tag)) continue;
 
     const dt = el.getAttribute?.('data-test');
-    const s = scoreDataTest(dt);
-    if (s > bestScore) {
-      bestScore = s;
-      best = el;
+    if (!dt) continue;
+
+    // Skip known containers
+    if (containerDataTest.test(dt)) continue;
+
+    // If this is an interactive component (Button_, MenuItem_, etc.), return immediately
+    if (isInteractiveComponent(dt)) {
+      return el;
     }
 
-    // Early exit: if we found a MenuItem_* very close to the click, that's almost always correct
-    if (bestScore >= 200) {
-      return best;
-    }
-  }
-
-  // If the only thing we found is a generic ::id::n wrapper, prefer to keep searching (return null)
-  if (best) {
-    const dt = best.getAttribute?.('data-test');
-    if (dt && /^::[a-z0-9]+::\d+$/i.test(dt) && bestScore <= 20) {
-      return null;
+    // Track the first element with data-test (non-container, non-leaf)
+    if (!firstWithDataTest) {
+      firstWithDataTest = el;
     }
   }
 
-  return best;
+  // Return the first element with data-test if no interactive component found
+  return firstWithDataTest;
 }
 
 function findInteractiveElement(element, event = null) {
