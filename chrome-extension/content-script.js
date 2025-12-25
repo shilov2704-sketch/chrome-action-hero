@@ -47,7 +47,7 @@ function startRecording(selectors) {
   document.addEventListener('input', handleInput, true);
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
-  document.addEventListener('mouseover', handleHover, true);
+  // NOTE: hover recording disabled - user requested removal of hover actions
 
   console.log('Recording started');
 }
@@ -64,14 +64,7 @@ function stopRecording() {
   document.removeEventListener('input', handleInput, true);
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
-  document.removeEventListener('mouseover', handleHover, true);
-
-  // Clear hover state
-  if (hoverDebounceTimer) {
-    clearTimeout(hoverDebounceTimer);
-    hoverDebounceTimer = null;
-  }
-  lastHoveredElement = null;
+  // NOTE: hover recording disabled
 
   console.log('Recording stopped', recordedEvents);
 }
@@ -848,11 +841,11 @@ async function executeStep(step, settings) {
     case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
+        // Patterns for list items and checkbox/radio components
         const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
+        const checkboxRadioPatterns = /CheckBox|Radio|Circle_Svg|CheckBoxRoot|CheckBoxField/i;
 
-        // IMPORTANT: offsets are relative to the element that was recorded.
-        // For backward compatibility with older recordings that stored a child node selector,
-        // only climb to list-item containers if the RECORDED selector itself was a list-item.
+        // Extract recorded data-test from selectors
         const recordedDataTest = (() => {
           if (!Array.isArray(step.selectors)) return null;
           for (const arr of step.selectors) {
@@ -865,7 +858,19 @@ async function executeStep(step, settings) {
         })();
 
         let baseElement = clickElement;
-        if (recordedDataTest && listItemPatterns.test(recordedDataTest)) {
+
+        // For checkbox/radio clicks - find the parent ListItem to click
+        if (recordedDataTest && checkboxRadioPatterns.test(recordedDataTest)) {
+          let candidate = clickElement;
+          while (candidate && candidate !== document.body) {
+            const dt = candidate.getAttribute?.('data-test');
+            if (dt && listItemPatterns.test(dt)) {
+              baseElement = candidate;
+              break;
+            }
+            candidate = candidate.parentElement;
+          }
+        } else if (recordedDataTest && listItemPatterns.test(recordedDataTest)) {
           // Recorded element was a list item container, so we can safely climb
           let candidate = clickElement;
           while (candidate && candidate !== document.body) {
@@ -880,17 +885,19 @@ async function executeStep(step, settings) {
 
         // Scroll into view (use 'auto' to avoid timing issues)
         baseElement.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 80));
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
         const rect = baseElement.getBoundingClientRect();
         const hasOffsets = typeof step.offsetX === 'number' && typeof step.offsetY === 'number';
 
-        const ox = hasOffsets
-          ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1))
-          : rect.width / 2;
-        const oy = hasOffsets
-          ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1))
-          : rect.height / 2;
+        // For checkbox/radio, click in the center of the list item
+        const isCheckboxRadio = recordedDataTest && checkboxRadioPatterns.test(recordedDataTest);
+        const ox = isCheckboxRadio 
+          ? rect.width / 2 
+          : (hasOffsets ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1)) : rect.width / 2);
+        const oy = isCheckboxRadio 
+          ? rect.height / 2 
+          : (hasOffsets ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1)) : rect.height / 2);
 
         const x = rect.left + ox;
         const y = rect.top + oy;
@@ -908,11 +915,6 @@ async function executeStep(step, settings) {
         } else if (typeof baseElement.focus === 'function') {
           baseElement.focus();
           baseElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-        }
-
-        if (typeof dispatchTarget.click === 'function') {
-          // Some widgets open only on a real click-to-focus flow
-          try { dispatchTarget.click(); } catch (e) {}
         }
 
         const mouseBase = {
@@ -934,7 +936,7 @@ async function executeStep(step, settings) {
           dispatchTarget.dispatchEvent(new PointerEvent('pointerenter', { ...pointerCommon, button: 0, buttons: 0 }));
           dispatchTarget.dispatchEvent(new PointerEvent('pointerover', { ...pointerCommon, button: 0, buttons: 0 }));
           dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', { ...pointerCommon, button: 0, buttons: 1 }));
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await new Promise((resolve) => setTimeout(resolve, 30));
           dispatchTarget.dispatchEvent(new PointerEvent('pointerup', { ...pointerCommon, button: 0, buttons: 0 }));
         }
 
@@ -943,11 +945,17 @@ async function executeStep(step, settings) {
         dispatchTarget.dispatchEvent(new MouseEvent('mousemove', mouseBase));
 
         dispatchTarget.dispatchEvent(new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 }));
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 30));
         dispatchTarget.dispatchEvent(new MouseEvent('mouseup', { ...mouseBase, button: 0, buttons: 0 }));
         dispatchTarget.dispatchEvent(new MouseEvent('click', { ...mouseBase, button: 0, buttons: 0, detail: 1 }));
 
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        // For checkboxes/radios, also try native click on the baseElement
+        if (isCheckboxRadio && typeof baseElement.click === 'function') {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          try { baseElement.click(); } catch (e) {}
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
       }
       break;
     }
