@@ -601,7 +601,12 @@ function generatePierceSelector(element) {
 
 function recordEvent(event) {
   const last = recordedEvents[recordedEvents.length - 1];
-  
+
+  // User requested: do NOT record hover actions.
+  if (event.type === 'hover') {
+    return;
+  }
+
   // Filter out keyDown/keyUp events - we only need change events for text input
   if (event.type === 'keyDown' || event.type === 'keyUp') {
     return;
@@ -925,7 +930,8 @@ async function executeStep(step, settings) {
           clientY: y
         };
 
-        // Hover-ish events first
+        // For stability: do not simulate hover events (mouseenter/mouseover/mousemove).
+        // Only dispatch the minimal pointer/mouse click sequence.
         if (window.PointerEvent) {
           const pointerCommon = {
             ...mouseBase,
@@ -933,16 +939,10 @@ async function executeStep(step, settings) {
             pointerType: 'mouse',
             isPrimary: true
           };
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerenter', { ...pointerCommon, button: 0, buttons: 0 }));
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerover', { ...pointerCommon, button: 0, buttons: 0 }));
           dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', { ...pointerCommon, button: 0, buttons: 1 }));
           await new Promise((resolve) => setTimeout(resolve, 30));
           dispatchTarget.dispatchEvent(new PointerEvent('pointerup', { ...pointerCommon, button: 0, buttons: 0 }));
         }
-
-        dispatchTarget.dispatchEvent(new MouseEvent('mouseenter', mouseBase));
-        dispatchTarget.dispatchEvent(new MouseEvent('mouseover', mouseBase));
-        dispatchTarget.dispatchEvent(new MouseEvent('mousemove', mouseBase));
 
         dispatchTarget.dispatchEvent(new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 }));
         await new Promise((resolve) => setTimeout(resolve, 30));
@@ -1132,47 +1132,7 @@ async function executeStep(step, settings) {
       break;
 
     case 'hover': {
-      const hoverElement = await waitForElement(step.selectors, settings.timeout || 5000);
-      if (hoverElement) {
-        // Scroll element into view
-        hoverElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        const rect = hoverElement.getBoundingClientRect();
-        const x = rect.left + (step.offsetX || rect.width / 2);
-        const y = rect.top + (step.offsetY || rect.height / 2);
-        
-        const mouseBase = {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y
-        };
-        
-        // Dispatch hover events
-        if (window.PointerEvent) {
-          hoverElement.dispatchEvent(new PointerEvent('pointerenter', {
-            ...mouseBase,
-            pointerId: 1,
-            pointerType: 'mouse',
-            isPrimary: true
-          }));
-          hoverElement.dispatchEvent(new PointerEvent('pointerover', {
-            ...mouseBase,
-            pointerId: 1,
-            pointerType: 'mouse',
-            isPrimary: true
-          }));
-        }
-        
-        hoverElement.dispatchEvent(new MouseEvent('mouseenter', mouseBase));
-        hoverElement.dispatchEvent(new MouseEvent('mouseover', mouseBase));
-        hoverElement.dispatchEvent(new MouseEvent('mousemove', mouseBase));
-        
-        // Wait for dropdown/menu to appear
-        await new Promise(resolve => setTimeout(resolve, 400));
-      }
+      // Hover steps are intentionally ignored (recording hover is disabled).
       break;
     }
 
