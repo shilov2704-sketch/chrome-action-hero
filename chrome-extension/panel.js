@@ -358,6 +358,11 @@ function handleRecordedEvent(message) {
   if (message.action === 'recordedEvent' && state.isRecording) {
     const step = message.event;
     const steps = state.currentRecording.steps;
+
+    // User requested: do NOT record hover steps (even if a stale content-script still emits them)
+    if (step?.type === 'hover') {
+      return;
+    }
     
     // Skip setViewport and navigate if continuing recording
     if (state.isContinuingRecording && (step.type === 'setViewport' || step.type === 'navigate')) {
