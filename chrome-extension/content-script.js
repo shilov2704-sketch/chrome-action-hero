@@ -85,47 +85,88 @@ function pickBestInteractiveFromEvent(event) {
     'p', 'strong', 'em', 'b', 'small'
   ]);
 
-  // Prefer “real” item targets, avoid big containers
-  const preferredDataTest = (dt) => {
-    if (!dt) return false;
-    return (
-      /^::[a-z0-9]+::\d+$/i.test(dt) ||
-      /(?:^|_)ListItem(?:_|$)|ListItemRoot|modal-list-element-\d+|Material_Root/i.test(dt)
-    );
-  };
-
   const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot/i;
 
-  const path = typeof event.composedPath === 'function'
-    ? event.composedPath().filter((n) => n && n.nodeType === Node.ELEMENT_NODE)
-    : [];
+  const scoreDataTest = (dt) => {
+    if (!dt) return -1;
+    if (containerDataTest.test(dt)) return -10000;
 
-  // Fallback path from the real click point
-  if (path.length === 0 && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    let score = 0;
+
+    // Highly specific interactive components
+    if (/MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i.test(dt)) score += 200;
+    if (/(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i.test(dt)) score += 160;
+    if (/Button|Tab|Option|Select|Dropdown|Popover|Dialog|CheckBox|Radio|Input|TextArea|Textbox/i.test(dt)) score += 120;
+
+    // Generic anonymous nodes like ::abc123::4 are often layout wrappers/containers
+    if (/^::[a-z0-9]+::\d+$/i.test(dt)) score += 5;
+
+    // Heuristic: underscore-heavy and longer IDs tend to be more specific
+    if (dt.includes('_')) score += 25;
+    score += Math.min(dt.length, 80) / 8;
+
+    return score;
+  };
+
+  const getPathFromPoint = () => {
+    if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return [];
+    const res = [];
     let el = document.elementFromPoint(event.clientX, event.clientY);
     while (el && el !== document.body) {
-      path.push(el);
+      res.push(el);
       el = el.parentElement;
+    }
+    return res;
+  };
+
+  const candidates = [];
+  const seen = new Set();
+
+  const pushEl = (el) => {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+    if (seen.has(el)) return;
+    seen.add(el);
+    candidates.push(el);
+  };
+
+  // 1) composedPath (when available)
+  if (typeof event.composedPath === 'function') {
+    const p = event.composedPath();
+    for (const n of p) pushEl(n);
+  }
+
+  // 2) elementFromPoint fallback (helps with retargeting / weird overlays)
+  for (const n of getPathFromPoint()) pushEl(n);
+
+  let best = null;
+  let bestScore = -1;
+
+  for (const el of candidates) {
+    const tag = el.tagName?.toLowerCase();
+    if (leafTags.has(tag)) continue;
+
+    const dt = el.getAttribute?.('data-test');
+    const s = scoreDataTest(dt);
+    if (s > bestScore) {
+      bestScore = s;
+      best = el;
+    }
+
+    // Early exit: if we found a MenuItem_* very close to the click, that's almost always correct
+    if (bestScore >= 200) {
+      return best;
     }
   }
 
-  // 1) Best match: preferred data-test (closest in the composed path)
-  for (const el of path) {
-    const tag = el.tagName?.toLowerCase();
-    if (leafTags.has(tag)) continue;
-    const dt = el.getAttribute?.('data-test');
-    if (dt && preferredDataTest(dt)) return el;
+  // If the only thing we found is a generic ::id::n wrapper, prefer to keep searching (return null)
+  if (best) {
+    const dt = best.getAttribute?.('data-test');
+    if (dt && /^::[a-z0-9]+::\d+$/i.test(dt) && bestScore <= 20) {
+      return null;
+    }
   }
 
-  // 2) Next best: any data-test that is not a known container
-  for (const el of path) {
-    const tag = el.tagName?.toLowerCase();
-    if (leafTags.has(tag)) continue;
-    const dt = el.getAttribute?.('data-test');
-    if (dt && !containerDataTest.test(dt)) return el;
-  }
-
-  return null;
+  return best;
 }
 
 function findInteractiveElement(element, event = null) {
@@ -135,8 +176,21 @@ function findInteractiveElement(element, event = null) {
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
 
-  // Narrow list-item patterns (avoid catching modal/container roots)
-  const listItemPatterns = /(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i;
+  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot/i;
+
+  const scoreDataTest = (dt) => {
+    if (!dt) return -1;
+    if (containerDataTest.test(dt)) return -10000;
+
+    let score = 0;
+    if (/MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i.test(dt)) score += 200;
+    if (/(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i.test(dt)) score += 160;
+    if (/Button|Tab|Option|Select|Dropdown|Popover|Dialog|CheckBox|Radio|Input|TextArea|Textbox/i.test(dt)) score += 120;
+    if (/^::[a-z0-9]+::\d+$/i.test(dt)) score += 5;
+    if (dt.includes('_')) score += 25;
+    score += Math.min(dt.length, 80) / 8;
+    return score;
+  };
 
   let current = element;
 
@@ -152,26 +206,36 @@ function findInteractiveElement(element, event = null) {
     break;
   }
 
-  // Step 2: If we're inside a list item - pick the nearest list-item container
-  let listItemCandidate = current;
-  while (listItemCandidate && listItemCandidate !== document.body) {
-    const dataTest = listItemCandidate.getAttribute('data-test');
-    if (dataTest && listItemPatterns.test(dataTest)) {
-      return listItemCandidate;
+  // Step 2: Walk up and pick the best data-test scored element (prevents picking ::id::n containers over MenuItem_*)
+  let best = null;
+  let bestScore = -1;
+  let candidate = current;
+  let hops = 0;
+
+  while (candidate && candidate !== document.body && hops < 20) {
+    const dt = candidate.getAttribute?.('data-test');
+    const s = scoreDataTest(dt);
+
+    if (s > bestScore) {
+      bestScore = s;
+      best = candidate;
     }
-    listItemCandidate = listItemCandidate.parentElement;
+
+    // Early exit for MenuItem_*
+    if (bestScore >= 200) {
+      return best;
+    }
+
+    candidate = candidate.parentElement;
+    hops++;
   }
 
-  // Step 3: Prefer the nearest element with data-test
-  while (current && current !== document.body) {
-    if (current.getAttribute && current.getAttribute('data-test')) {
-      return current;
-    }
-    current = current.parentElement;
+  if (best && bestScore > 0) {
+    return best;
   }
 
   // Fallback
-  return element;
+  return current || element;
 }
 
 function flushPendingInputEvents() {
@@ -904,55 +968,56 @@ async function executeStep(step, settings) {
           ? rect.height / 2 
           : (hasOffsets ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1)) : rect.height / 2);
 
-        const x = rect.left + ox;
-        const y = rect.top + oy;
+        // Compute click point (clamped to viewport to avoid null elementFromPoint)
+        const xRaw = rect.left + ox;
+        const yRaw = rect.top + oy;
+        const x = Math.min(Math.max(xRaw, 1), window.innerWidth - 2);
+        const y = Math.min(Math.max(yRaw, 1), window.innerHeight - 2);
 
-        // Pick the real DOM target at the click point (ensures correct event.target)
+        // Pick the real DOM target at the click point (better matches real user click target)
         let dispatchTarget = document.elementFromPoint(x, y);
-        if (!dispatchTarget || !baseElement.contains(dispatchTarget)) {
+        if (!dispatchTarget || !baseElement.contains(dispatchTarget) || dispatchTarget === document.documentElement || dispatchTarget === document.body) {
           dispatchTarget = baseElement;
         }
 
-        // Focus/click first (important for custom selects / inputs)
-        if (typeof dispatchTarget.focus === 'function') {
-          dispatchTarget.focus();
-          dispatchTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-        } else if (typeof baseElement.focus === 'function') {
-          baseElement.focus();
-          baseElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        // For stability: prefer native click, avoid long synthetic pointer/mouse sequences (can crash some apps)
+        try {
+          if (typeof dispatchTarget.focus === 'function') {
+            try { dispatchTarget.focus({ preventScroll: true }); } catch (e) { try { dispatchTarget.focus(); } catch (e2) {} }
+          } else if (typeof baseElement.focus === 'function') {
+            try { baseElement.focus({ preventScroll: true }); } catch (e) { try { baseElement.focus(); } catch (e2) {} }
+          }
+        } catch (e) {
+          // ignore
         }
 
-        const mouseBase = {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: x,
-          clientY: y
-        };
-
-        // For stability: do not simulate hover events (mouseenter/mouseover/mousemove).
-        // Only dispatch the minimal pointer/mouse click sequence.
-        if (window.PointerEvent) {
-          const pointerCommon = {
-            ...mouseBase,
-            pointerId: 1,
-            pointerType: 'mouse',
-            isPrimary: true
-          };
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', { ...pointerCommon, button: 0, buttons: 1 }));
-          await new Promise((resolve) => setTimeout(resolve, 30));
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', { ...pointerCommon, button: 0, buttons: 0 }));
-        }
-
-        dispatchTarget.dispatchEvent(new MouseEvent('mousedown', { ...mouseBase, button: 0, buttons: 1 }));
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        dispatchTarget.dispatchEvent(new MouseEvent('mouseup', { ...mouseBase, button: 0, buttons: 0 }));
-        dispatchTarget.dispatchEvent(new MouseEvent('click', { ...mouseBase, button: 0, buttons: 0, detail: 1 }));
-
-        // For checkboxes/radios, also try native click on the baseElement
+        let clicked = false;
         if (isCheckboxRadio && typeof baseElement.click === 'function') {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          try { baseElement.click(); } catch (e) {}
+          try { baseElement.click(); clicked = true; } catch (e) {}
+        }
+
+        if (!clicked && typeof dispatchTarget.click === 'function') {
+          try { dispatchTarget.click(); clicked = true; } catch (e) {}
+        }
+
+        if (!clicked && dispatchTarget !== baseElement && typeof baseElement.click === 'function') {
+          try { baseElement.click(); clicked = true; } catch (e) {}
+        }
+
+        // Last resort
+        if (!clicked && typeof dispatchTarget.dispatchEvent === 'function') {
+          dispatchTarget.dispatchEvent(
+            new MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: x,
+              clientY: y,
+              button: 0,
+              buttons: 0,
+              detail: 1
+            })
+          );
         }
 
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -983,8 +1048,7 @@ async function executeStep(step, settings) {
         }
 
         if (typeof editable.focus === 'function') {
-          editable.focus();
-          editable.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+          try { editable.focus({ preventScroll: true }); } catch (e) { try { editable.focus(); } catch (e2) {} }
           await new Promise((resolve) => setTimeout(resolve, 30));
         }
 
