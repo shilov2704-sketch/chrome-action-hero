@@ -160,79 +160,15 @@ function pickBestInteractiveFromEvent(event) {
     'p', 'strong', 'em', 'b', 'small'
   ]);
 
-  // Containers that should NEVER be selected - these are layout wrappers
+  // Layout wrappers/containers that must never be recorded as the clicked element
   const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i;
 
-  // Check if data-test indicates an interactive component (Button, MenuItem, etc.)
   const isInteractiveComponent = (dt) => {
     if (!dt) return false;
     return /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i.test(dt);
   };
 
-  const getPathFromPoint = () => {
-    if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return [];
-
-    const x = event.clientX;
-    const y = event.clientY;
-
-    // Use elementsFromPoint to get ALL stacked elements under the cursor.
-    const stack = typeof document.elementsFromPoint === 'function'
-      ? document.elementsFromPoint(x, y)
-      : [document.elementFromPoint(x, y)].filter(Boolean);
-
-    const res = [];
-
-    for (const topEl of stack) {
-      let el = topEl;
-      while (el && el !== document.body) {
-        res.push(el);
-        el = el.parentElement;
-      }
-    }
-
-    return res;
-  };
-
-  const candidates = [];
-  const seen = new Set();
-
-  const pushEl = (el) => {
-    if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
-    if (seen.has(el)) return;
-    seen.add(el);
-    candidates.push(el);
-  };
-
-  // 1) composedPath (when available) - ordered from target (innermost) to window
-  if (typeof event.composedPath === 'function') {
-    const p = event.composedPath();
-    for (const n of p) pushEl(n);
-  }
-
-  // 2) elementsFromPoint fallback (helps with retargeting / overlays)
-  for (const n of getPathFromPoint()) pushEl(n);
-
-  // Strategy A: return the closest (to the click) interactive element with data-test
-  let firstWithDataTest = null;
-
-  for (const el of candidates) {
-    const tag = el.tagName?.toLowerCase();
-    if (leafTags.has(tag)) continue;
-
-    const dt = el.getAttribute?.('data-test');
-    if (!dt) continue;
-
-    if (containerDataTest.test(dt)) continue;
-
-    if (isInteractiveComponent(dt)) {
-      return el;
-    }
-
-    if (!firstWithDataTest) firstWithDataTest = el;
-  }
-
-  // Strategy B (critical): if event.target was retargeted to a container, search INSIDE the
-  // top element under cursor and pick the best descendant at (x,y).
+  // PRIMARY STRATEGY: use the actual visual stack under the cursor (works even when event.target is retargeted)
   if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
     const x = event.clientX;
     const y = event.clientY;
@@ -241,18 +177,62 @@ function pickBestInteractiveFromEvent(event) {
       ? document.elementsFromPoint(x, y)
       : [document.elementFromPoint(x, y)].filter(Boolean);
 
-    const root = (stack && stack[0]) || (event.target && event.target.nodeType === Node.ELEMENT_NODE ? event.target : null);
+    // Walk from the deepest painted element upwards and pick the first meaningful data-test.
+    let firstNonContainer = null;
 
+    for (let i = stack.length - 1; i >= 0; i--) {
+      let el = stack[i];
+      while (el && el !== document.body) {
+        if (el.nodeType !== Node.ELEMENT_NODE) break;
+
+        const tag = el.tagName?.toLowerCase();
+        const dt = el.getAttribute?.('data-test');
+
+        if (dt && !containerDataTest.test(dt) && !leafTags.has(tag)) {
+          if (isInteractiveComponent(dt)) return el;
+          if (!firstNonContainer) firstNonContainer = el;
+        }
+
+        el = el.parentElement;
+      }
+
+      if (firstNonContainer) {
+        // Keep checking for an interactive element, but if none exists we'll return this.
+        // (Do not early-return here)
+      }
+    }
+
+    if (firstNonContainer) return firstNonContainer;
+
+    // As a last resort, try a point-based descendant scan inside event.target
+    const root = (event.target && event.target.nodeType === Node.ELEMENT_NODE) ? event.target : null;
     const byPoint = findBestDataTestDescendantAtPoint(root, x, y, {
       containerDataTest,
       interactiveDataTest: /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i,
       leafTags,
+      maxNodes: 20000,
     });
-
     if (byPoint) return byPoint;
   }
 
-  return firstWithDataTest;
+  // FALLBACK: composedPath / event.target chain
+  const path = (typeof event.composedPath === 'function') ? event.composedPath() : [];
+  const candidates = [...path, event.target].filter((n) => n && n.nodeType === Node.ELEMENT_NODE);
+
+  for (const raw of candidates) {
+    let el = raw;
+    while (el && el !== document.body) {
+      const tag = el.tagName?.toLowerCase();
+      const dt = el.getAttribute?.('data-test');
+      if (dt && !containerDataTest.test(dt) && !leafTags.has(tag)) {
+        if (isInteractiveComponent(dt)) return el;
+        return el;
+      }
+      el = el.parentElement;
+    }
+  }
+
+  return null;
 }
 
 function findInteractiveElement(element, event = null) {
