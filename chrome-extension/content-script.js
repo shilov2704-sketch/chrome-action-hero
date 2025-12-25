@@ -77,6 +77,81 @@ function isElementVisible(el) {
   return rect.width > 0 && rect.height > 0;
 }
 
+function findBestDataTestDescendantAtPoint(root, x, y, opts = {}) {
+  const {
+    containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i,
+    interactiveDataTest = /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i,
+    leafTags = new Set(['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small']),
+    maxNodes = 1500,
+  } = opts;
+
+  if (!root || root.nodeType !== Node.ELEMENT_NODE) return null;
+  if (typeof x !== 'number' || typeof y !== 'number') return null;
+
+  const nodes = [];
+  try {
+    if (root.hasAttribute?.('data-test')) nodes.push(root);
+    const list = root.querySelectorAll?.('[data-test]');
+    if (list && list.length) nodes.push(...list);
+  } catch (e) {
+    // ignore
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  const limit = Math.min(nodes.length, maxNodes);
+
+  for (let i = 0; i < limit; i++) {
+    const el = nodes[i];
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) continue;
+
+    const dt = el.getAttribute?.('data-test');
+    if (!dt) continue;
+
+    // Never pick known containers
+    if (containerDataTest.test(dt)) continue;
+
+    let rect;
+    try {
+      rect = el.getBoundingClientRect();
+    } catch (e) {
+      continue;
+    }
+
+    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+    const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    if (!inside) continue;
+
+    const tag = el.tagName?.toLowerCase();
+
+    // Score: strongly prefer interactive components; then deeper/smaller elements at the point.
+    const area = Math.max(1, rect.width * rect.height);
+    const areaPenalty = Math.log(area + 1) * 50;
+
+    let depth = 0;
+    let p = el.parentElement;
+    while (p && p !== root && depth < 15) {
+      depth++;
+      p = p.parentElement;
+    }
+
+    let score = depth * 20 - areaPenalty;
+
+    if (interactiveDataTest.test(dt)) score += 10000;
+
+    // Avoid leaf nodes like span/p when a parent wrapper is the actual clickable element
+    if (leafTags.has(tag)) score -= 2000;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = el;
+    }
+  }
+
+  return best;
+}
+
 function pickBestInteractiveFromEvent(event) {
   if (!event) return null;
 
@@ -86,7 +161,7 @@ function pickBestInteractiveFromEvent(event) {
   ]);
 
   // Containers that should NEVER be selected - these are layout wrappers
-  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer|_Container_|_Root_.*::[a-z0-9]+::0$/i;
+  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i;
 
   // Check if data-test indicates an interactive component (Button, MenuItem, etc.)
   const isInteractiveComponent = (dt) => {
@@ -100,8 +175,7 @@ function pickBestInteractiveFromEvent(event) {
     const x = event.clientX;
     const y = event.clientY;
 
-    // Use elementsFromPoint to get ALL stacked elements under the cursor (fixes cases
-    // where click is retargeted to a high-level container).
+    // Use elementsFromPoint to get ALL stacked elements under the cursor.
     const stack = typeof document.elementsFromPoint === 'function'
       ? document.elementsFromPoint(x, y)
       : [document.elementFromPoint(x, y)].filter(Boolean);
@@ -129,20 +203,17 @@ function pickBestInteractiveFromEvent(event) {
     candidates.push(el);
   };
 
-  // 1) composedPath (when available) - elements are ordered from target (innermost) to window
+  // 1) composedPath (when available) - ordered from target (innermost) to window
   if (typeof event.composedPath === 'function') {
     const p = event.composedPath();
     for (const n of p) pushEl(n);
   }
 
-  // 2) elementFromPoint fallback (helps with retargeting / weird overlays)
+  // 2) elementsFromPoint fallback (helps with retargeting / overlays)
   for (const n of getPathFromPoint()) pushEl(n);
 
-  // Strategy: Find the FIRST (closest to click) interactive element with data-test
-  // Skip leaf tags and containers, prioritize Button_, MenuItem_, etc.
-  
-  let firstInteractive = null;  // First Button_, MenuItem_, etc.
-  let firstWithDataTest = null; // First element with any data-test (non-container)
+  // Strategy A: return the closest (to the click) interactive element with data-test
+  let firstWithDataTest = null;
 
   for (const el of candidates) {
     const tag = el.tagName?.toLowerCase();
@@ -151,21 +222,36 @@ function pickBestInteractiveFromEvent(event) {
     const dt = el.getAttribute?.('data-test');
     if (!dt) continue;
 
-    // Skip known containers
     if (containerDataTest.test(dt)) continue;
 
-    // If this is an interactive component (Button_, MenuItem_, etc.), return immediately
     if (isInteractiveComponent(dt)) {
       return el;
     }
 
-    // Track the first element with data-test (non-container, non-leaf)
-    if (!firstWithDataTest) {
-      firstWithDataTest = el;
-    }
+    if (!firstWithDataTest) firstWithDataTest = el;
   }
 
-  // Return the first element with data-test if no interactive component found
+  // Strategy B (critical): if event.target was retargeted to a container, search INSIDE the
+  // top element under cursor and pick the best descendant at (x,y).
+  if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    const x = event.clientX;
+    const y = event.clientY;
+
+    const stack = typeof document.elementsFromPoint === 'function'
+      ? document.elementsFromPoint(x, y)
+      : [document.elementFromPoint(x, y)].filter(Boolean);
+
+    const root = (stack && stack[0]) || (event.target && event.target.nodeType === Node.ELEMENT_NODE ? event.target : null);
+
+    const byPoint = findBestDataTestDescendantAtPoint(root, x, y, {
+      containerDataTest,
+      interactiveDataTest: /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i,
+      leafTags,
+    });
+
+    if (byPoint) return byPoint;
+  }
+
   return firstWithDataTest;
 }
 
@@ -207,7 +293,18 @@ function findInteractiveElement(element, event = null) {
     break;
   }
 
-  // Step 2: Walk up and pick the best data-test scored element (prevents picking ::id::n containers over MenuItem_*)
+  // If we landed on a container, prefer searching inside it by click coordinates (if available)
+  if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    const dt = current?.getAttribute?.('data-test');
+    if (dt && containerDataTest.test(dt)) {
+      const byPoint = findBestDataTestDescendantAtPoint(current, event.clientX, event.clientY, {
+        containerDataTest,
+      });
+      if (byPoint) return byPoint;
+    }
+  }
+
+  // Step 2: Walk up and pick the best data-test scored element
   let best = null;
   let bestScore = -1;
   let candidate = current;
@@ -235,7 +332,14 @@ function findInteractiveElement(element, event = null) {
     return best;
   }
 
-  // Fallback
+  // Last resort: try by-point inside current element (handles retargeting)
+  if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    const byPoint = findBestDataTestDescendantAtPoint(current || element, event.clientX, event.clientY, {
+      containerDataTest,
+    });
+    if (byPoint) return byPoint;
+  }
+
   return current || element;
 }
 
