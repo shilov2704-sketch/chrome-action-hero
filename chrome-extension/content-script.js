@@ -457,6 +457,13 @@ function recordNavigation() {
 function generateSelectors(element, eventType = null) {
   const selectors = [];
 
+  // PRIORITY: data-test based XPath is always first and primary
+  if (element.hasAttribute('data-test')) {
+    const dataTest = element.getAttribute('data-test');
+    selectors.push([`xpath//*[@data-test='${dataTest}']`]);
+  }
+
+  // Fallback selectors (only if xpath not available or user explicitly wants them)
   selectedSelectors.forEach((selectorType) => {
     try {
       switch (selectorType) {
@@ -467,8 +474,7 @@ function generateSelectors(element, eventType = null) {
         }
 
         case 'xpath': {
-          const xpathSelector = generateXPathSelector(element, eventType);
-          if (xpathSelector) selectors.push([xpathSelector]);
+          // Already added data-test xpath above as priority
           break;
         }
 
