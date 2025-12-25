@@ -915,23 +915,63 @@ async function executeStep(step, settings) {
       break;
 
     case 'click': {
-      const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
+      // Patterns for detecting if target is a MenuItem (likely inside a dropdown)
+      const menuItemPatterns = /MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i;
+      const dropdownTriggerPatterns = /trigger|select|dropdown|combobox|popover/i;
+
+      // Extract recorded data-test from selectors
+      const recordedDataTest = (() => {
+        if (!Array.isArray(step.selectors)) return null;
+        for (const arr of step.selectors) {
+          const s = arr?.[0];
+          if (typeof s !== 'string') continue;
+          const m = s.match(/^xpath\/\/\*\[@data-test='([^']+)'\]$/);
+          if (m) return m[1];
+        }
+        return null;
+      })();
+
+      // --- Auto-open dropdown if target is a MenuItem but not yet in DOM ---
+      const isMenuItem = recordedDataTest && menuItemPatterns.test(recordedDataTest);
+      let clickElement = findElement(step.selectors);
+
+      if (!clickElement && isMenuItem) {
+        // Try to find and click a dropdown trigger to open the menu
+        const triggers = Array.from(document.querySelectorAll(
+          '[aria-haspopup="true"], [aria-haspopup="listbox"], [aria-haspopup="menu"], ' +
+          '[role="combobox"], [role="listbox"], [data-test*="Trigger"], [data-test*="Select"], ' +
+          '[data-test*="Dropdown"], button[aria-expanded]'
+        ));
+
+        for (const trigger of triggers) {
+          const expanded = trigger.getAttribute('aria-expanded');
+          // If already expanded, skip
+          if (expanded === 'true') continue;
+
+          // Click trigger to open dropdown
+          try {
+            trigger.scrollIntoView?.({ behavior: 'auto', block: 'center' });
+            await new Promise(r => setTimeout(r, 50));
+            trigger.click();
+            await new Promise(r => setTimeout(r, 200));
+
+            // Check if our target appeared
+            clickElement = findElement(step.selectors);
+            if (clickElement) break;
+          } catch (e) {
+            console.warn('Failed to click dropdown trigger:', e);
+          }
+        }
+      }
+
+      // Standard wait for element (in case auto-open worked or element was loading)
+      if (!clickElement) {
+        clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
+      }
+
       if (clickElement) {
-        // Patterns for list items and checkbox/radio components
         const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
         const checkboxRadioPatterns = /CheckBox|Radio|Circle_Svg|CheckBoxRoot|CheckBoxField/i;
-
-        // Extract recorded data-test from selectors
-        const recordedDataTest = (() => {
-          if (!Array.isArray(step.selectors)) return null;
-          for (const arr of step.selectors) {
-            const s = arr?.[0];
-            if (typeof s !== 'string') continue;
-            const m = s.match(/^xpath\/\/\*\[@data-test='([^']+)'\]$/);
-            if (m) return m[1];
-          }
-          return null;
-        })();
 
         let baseElement = clickElement;
 
@@ -947,7 +987,6 @@ async function executeStep(step, settings) {
             candidate = candidate.parentElement;
           }
         } else if (recordedDataTest && listItemPatterns.test(recordedDataTest)) {
-          // Recorded element was a list item container, so we can safely climb
           let candidate = clickElement;
           while (candidate && candidate !== document.body) {
             const dt = candidate.getAttribute?.('data-test');
@@ -959,75 +998,79 @@ async function executeStep(step, settings) {
           }
         }
 
-        // Scroll into view (use 'auto' to avoid timing issues)
+        // Scroll into view
         baseElement.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise(r => setTimeout(r, 80));
 
         const rect = baseElement.getBoundingClientRect();
         const hasOffsets = typeof step.offsetX === 'number' && typeof step.offsetY === 'number';
-
-        // For checkbox/radio, click in the center of the list item
         const isCheckboxRadio = recordedDataTest && checkboxRadioPatterns.test(recordedDataTest);
-        const ox = isCheckboxRadio 
-          ? rect.width / 2 
+
+        const ox = isCheckboxRadio
+          ? rect.width / 2
           : (hasOffsets ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1)) : rect.width / 2);
-        const oy = isCheckboxRadio 
-          ? rect.height / 2 
+        const oy = isCheckboxRadio
+          ? rect.height / 2
           : (hasOffsets ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1)) : rect.height / 2);
 
-        // Compute click point (clamped to viewport to avoid null elementFromPoint)
         const xRaw = rect.left + ox;
         const yRaw = rect.top + oy;
         const x = Math.min(Math.max(xRaw, 1), window.innerWidth - 2);
         const y = Math.min(Math.max(yRaw, 1), window.innerHeight - 2);
 
-        // Pick the real DOM target at the click point (better matches real user click target)
         let dispatchTarget = document.elementFromPoint(x, y);
         if (!dispatchTarget || !baseElement.contains(dispatchTarget) || dispatchTarget === document.documentElement || dispatchTarget === document.body) {
           dispatchTarget = baseElement;
         }
 
-        // For stability: prefer native click, avoid long synthetic pointer/mouse sequences (can crash some apps)
+        // Focus element (silently)
         try {
           if (typeof dispatchTarget.focus === 'function') {
-            try { dispatchTarget.focus({ preventScroll: true }); } catch (e) { try { dispatchTarget.focus(); } catch (e2) {} }
+            dispatchTarget.focus({ preventScroll: true });
           } else if (typeof baseElement.focus === 'function') {
-            try { baseElement.focus({ preventScroll: true }); } catch (e) { try { baseElement.focus(); } catch (e2) {} }
+            baseElement.focus({ preventScroll: true });
           }
+        } catch (e) { /* ignore */ }
+
+        // --- Realistic click sequence (avoids crashes from long synthetic sequences) ---
+        // Using a minimal but more realistic approach: pointerdown -> mousedown -> pointerup -> mouseup -> click
+        const eventInit = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          button: 0,
+          buttons: 1,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true,
+          detail: 1
+        };
+
+        try {
+          // pointerdown + mousedown
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+          dispatchTarget.dispatchEvent(new MouseEvent('mousedown', eventInit));
+          await new Promise(r => setTimeout(r, 30));
+
+          // pointerup + mouseup
+          const upInit = { ...eventInit, buttons: 0 };
+          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', upInit));
+          dispatchTarget.dispatchEvent(new MouseEvent('mouseup', upInit));
+          await new Promise(r => setTimeout(r, 10));
+
+          // click
+          dispatchTarget.dispatchEvent(new MouseEvent('click', upInit));
         } catch (e) {
-          // ignore
+          // Fallback: native click
+          console.warn('Synthetic click failed, using native click:', e);
+          try { dispatchTarget.click(); } catch (e2) { baseElement.click(); }
         }
 
-        let clicked = false;
-        if (isCheckboxRadio && typeof baseElement.click === 'function') {
-          try { baseElement.click(); clicked = true; } catch (e) {}
-        }
-
-        if (!clicked && typeof dispatchTarget.click === 'function') {
-          try { dispatchTarget.click(); clicked = true; } catch (e) {}
-        }
-
-        if (!clicked && dispatchTarget !== baseElement && typeof baseElement.click === 'function') {
-          try { baseElement.click(); clicked = true; } catch (e) {}
-        }
-
-        // Last resort
-        if (!clicked && typeof dispatchTarget.dispatchEvent === 'function') {
-          dispatchTarget.dispatchEvent(
-            new MouseEvent('click', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              clientX: x,
-              clientY: y,
-              button: 0,
-              buttons: 0,
-              detail: 1
-            })
-          );
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise(r => setTimeout(r, 120));
       }
       break;
     }
@@ -1229,12 +1272,13 @@ async function executeStep(step, settings) {
 
 function findElement(selectors) {
   if (!Array.isArray(selectors)) return null;
-  
-  // Priority 1: Try XPath selectors first (most reliable)
+
+  // Priority 1: XPath (most reliable for data-test attributes)
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    
+    if (typeof selector !== 'string') continue;
+
     if (selector.startsWith('xpath//')) {
       const xpath = selector.replace('xpath//', '//');
       try {
@@ -1248,96 +1292,93 @@ function findElement(selectors) {
       }
     }
   }
-  
-  // Priority 2: Try ARIA selectors
-  for (const selectorArray of selectors) {
-    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    const selector = selectorArray[0];
 
-    if (selector.startsWith('aria/')) {
-      const ariaLabel = selector.replace('aria/', '');
-      try {
-        // Support raw attribute/role queries like aria/[role="textbox"]
-        if (ariaLabel.trim().startsWith('[')) {
-          const el = document.querySelector(ariaLabel.trim());
-          if (el) {
-            console.log('Found element using ARIA query:', ariaLabel);
-            return el;
-          }
-        }
+  // Priority 2: CSS selectors (fast + specific in modern apps)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    if (typeof selector !== 'string') continue;
 
-        const element =
-          document.querySelector(`[aria-label="${ariaLabel}"]`) ||
-          document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
-        if (element) {
-          console.log('Found element using ARIA:', ariaLabel);
-          return element;
-        }
-      } catch (e) {
-        console.warn('Invalid ARIA selector:', selector, e);
-      }
+    if (selector.startsWith('xpath//') || selector.startsWith('text/') || selector.startsWith('pierce/') || selector.startsWith('aria/')) {
+      continue;
     }
-  }
-  
-  // Priority 3: Try CSS selectors
-  for (const selectorArray of selectors) {
-    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    const selector = selectorArray[0];
-    
-    if (!selector.startsWith('xpath//') && !selector.startsWith('text/') && 
-        !selector.startsWith('pierce/') && !selector.startsWith('aria/')) {
-      try {
-        const element = document.querySelector(selector);
-        if (element) {
-          console.log('Found element using CSS:', selector);
-          return element;
-        }
-      } catch (e) {
-        console.warn('Invalid CSS selector:', selector, e);
-      }
-    }
-  }
-  
-  // Priority 4: Try Pierce selectors
-  for (const selectorArray of selectors) {
-    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    const selector = selectorArray[0];
-    
-    if (selector.startsWith('pierce/')) {
-      const cssSelector = selector.replace('pierce/', '');
-      try {
-        const element = document.querySelector(cssSelector);
-        if (element) {
-          console.log('Found element using Pierce:', cssSelector);
-          return element;
-        }
-      } catch (e) {
-        console.warn('Invalid pierce selector:', cssSelector, e);
-      }
-    }
-  }
-  
-  // Priority 5: Text selectors as last resort (least reliable)
-  for (const selectorArray of selectors) {
-    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    const selector = selectorArray[0];
-    
-    if (selector.startsWith('text/')) {
-      const text = selector.replace('text/', '');
-      console.warn('Using text selector as fallback:', text);
-      
-      // Find clickable elements only (buttons, links, inputs)
-      const clickableSelectors = 'button, a, input, [role="button"], [onclick]';
-      const elements = Array.from(document.querySelectorAll(clickableSelectors));
-      const element = elements.find(el => el.textContent?.trim() === text);
-      
+
+    try {
+      const element = document.querySelector(selector);
       if (element) {
-        console.log('Found element using text (fallback):', text);
+        console.log('Found element using CSS:', selector);
         return element;
       }
+    } catch (e) {
+      console.warn('Invalid CSS selector:', selector, e);
     }
   }
-  
+
+  // Priority 3: ARIA selectors (label-based only; role-only removed)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    if (typeof selector !== 'string' || !selector.startsWith('aria/')) continue;
+
+    const ariaLabel = selector.replace('aria/', '');
+    try {
+      if (ariaLabel.trim().startsWith('[')) {
+        const el = document.querySelector(ariaLabel.trim());
+        if (el) {
+          console.log('Found element using ARIA query:', ariaLabel);
+          return el;
+        }
+      }
+
+      const element =
+        document.querySelector(`[aria-label="${ariaLabel}"]`) ||
+        document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
+      if (element) {
+        console.log('Found element using ARIA:', ariaLabel);
+        return element;
+      }
+    } catch (e) {
+      console.warn('Invalid ARIA selector:', selector, e);
+    }
+  }
+
+  // Priority 4: Pierce selectors (shadow DOM)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    if (typeof selector !== 'string' || !selector.startsWith('pierce/')) continue;
+
+    const cssSelector = selector.replace('pierce/', '');
+    try {
+      const element = document.querySelector(cssSelector);
+      if (element) {
+        console.log('Found element using Pierce:', cssSelector);
+        return element;
+      }
+    } catch (e) {
+      console.warn('Invalid pierce selector:', cssSelector, e);
+    }
+  }
+
+  // Priority 5: Text selectors (last resort)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    if (typeof selector !== 'string' || !selector.startsWith('text/')) continue;
+
+    const text = selector.replace('text/', '');
+    console.warn('Using text selector as fallback:', text);
+
+    const clickableSelectors = 'button, a, input, [role="button"], [onclick]';
+    const elements = Array.from(document.querySelectorAll(clickableSelectors));
+    const element = elements.find(el => el.textContent?.trim() === text);
+
+    if (element) {
+      console.log('Found element using text (fallback):', text);
+      return element;
+    }
+  }
+
   return null;
 }
 
