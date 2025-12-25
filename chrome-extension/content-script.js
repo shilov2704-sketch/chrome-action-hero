@@ -96,12 +96,26 @@ function pickBestInteractiveFromEvent(event) {
 
   const getPathFromPoint = () => {
     if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return [];
+
+    const x = event.clientX;
+    const y = event.clientY;
+
+    // Use elementsFromPoint to get ALL stacked elements under the cursor (fixes cases
+    // where click is retargeted to a high-level container).
+    const stack = typeof document.elementsFromPoint === 'function'
+      ? document.elementsFromPoint(x, y)
+      : [document.elementFromPoint(x, y)].filter(Boolean);
+
     const res = [];
-    let el = document.elementFromPoint(event.clientX, event.clientY);
-    while (el && el !== document.body) {
-      res.push(el);
-      el = el.parentElement;
+
+    for (const topEl of stack) {
+      let el = topEl;
+      while (el && el !== document.body) {
+        res.push(el);
+        el = el.parentElement;
+      }
     }
+
     return res;
   };
 
@@ -162,7 +176,8 @@ function findInteractiveElement(element, event = null) {
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
 
-  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot/i;
+  // Layout wrappers/containers that must never be recorded as the clicked element
+  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i;
 
   const scoreDataTest = (dt) => {
     if (!dt) return -1;
@@ -441,15 +456,25 @@ function recordNavigation() {
 }
 
 function generateSelectors(element, eventType = null) {
-  const selectors = [];
-
-  // PRIORITY: data-test based XPath is always first and primary
-  if (element.hasAttribute('data-test')) {
+  // In this project every element has data-test and locators must be XPath by data-test only.
+  if (element?.hasAttribute?.('data-test')) {
     const dataTest = element.getAttribute('data-test');
-    selectors.push([`xpath//*[@data-test='${dataTest}']`]);
+    if (typeof dataTest === 'string') {
+      const toXPathLiteral = (s) => {
+        if (!s.includes("'")) return `'${s}'`;
+        if (!s.includes('"')) return `"${s}"`;
+        // Extremely rare: contains both quotes
+        const parts = s.split("'").map((p) => `'${p}'`);
+        return `concat(${parts.join(", \"'\", ")})`;
+      };
+
+      const literal = toXPathLiteral(dataTest);
+      return [[`xpath//*[@data-test=${literal}]`]];
+    }
   }
 
-  // Fallback selectors (only if xpath not available or user explicitly wants them)
+  // Safety fallback for non-instrumented pages
+  const selectors = [];
   selectedSelectors.forEach((selectorType) => {
     try {
       switch (selectorType) {
@@ -458,24 +483,21 @@ function generateSelectors(element, eventType = null) {
           if (cssSelector) selectors.push([cssSelector]);
           break;
         }
-
         case 'xpath': {
-          // Already added data-test xpath above as priority
+          const xpathSelector = generateXPathSelector(element, eventType);
+          if (xpathSelector) selectors.push([xpathSelector]);
           break;
         }
-
         case 'aria': {
           const ariaSelector = generateARIASelector(element);
           if (ariaSelector) selectors.push([ariaSelector]);
           break;
         }
-
         case 'text': {
           const textSelector = generateTextSelector(element);
           if (textSelector) selectors.push([textSelector]);
           break;
         }
-
         case 'pierce': {
           const pierceSelector = generatePierceSelector(element);
           if (pierceSelector) selectors.push([pierceSelector]);
