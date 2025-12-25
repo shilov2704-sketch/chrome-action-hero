@@ -550,16 +550,23 @@ function generateXPathSelector(element, eventType = null) {
 }
 
 function generateARIASelector(element) {
-  const role = element.getAttribute('role');
+  // Only generate ARIA selectors when they are likely to be specific.
+  // IMPORTANT: role-only selectors like [role="button"] are too generic and can click the wrong element.
   const label = element.getAttribute('aria-label');
-  const value = element.getAttribute('aria-valuetext') || element.value;
-
-  if (role) {
-    return `aria/[role="${role}"]`;
-  }
+  const labelledBy = element.getAttribute('aria-labelledby');
+  const valueText = element.getAttribute('aria-valuetext');
+  const value = element.value;
 
   if (label) {
     return `aria/${label}`;
+  }
+
+  if (labelledBy) {
+    return `aria/${labelledBy}`;
+  }
+
+  if (valueText) {
+    return `aria/${valueText}`;
   }
 
   if (value) {
