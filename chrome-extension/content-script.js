@@ -816,9 +816,16 @@ async function executeStep(step, settings) {
             return role === 'checkbox' || role === 'radio';
           };
 
+          // Custom checkboxes/radios are often <div data-test="CheckBox_*"> without role/input.
+          const isDataTestCheckable = (el) => {
+            const dt = (el?.getAttribute?.('data-test') || '').toLowerCase();
+            return dt.includes('checkbox') || dt.includes('radio');
+          };
+
           const isClickable = (el) => {
             const t = el?.tagName?.toLowerCase();
             return (
+              isDataTestCheckable(el) ||
               isCheckableInput(el) ||
               isRoleCheckable(el) ||
               t === 'button' ||
