@@ -711,53 +711,12 @@ function setElementValue(el, value) {
   }
 
   // Handle contenteditable / Draft.js / rich text editors
+  // These need special handling - we'll use Debugger API if available
   if (el.isContentEditable || el.getAttribute?.('role') === 'textbox') {
-    // Focus the element first
-    el.focus();
-    
-    // For Draft.js editors (aria-label='rdw-editor'), we need special handling
-    const isDraftJs = el.getAttribute?.('aria-label') === 'rdw-editor' || 
-                      el.classList?.contains('public-DraftEditor-content') ||
-                      el.closest?.('[class*="DraftEditor"]');
-    
-    if (isDraftJs) {
-      // Draft.js requires simulating actual text input
-      // First, select all existing content
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      
-      // Delete existing content
-      document.execCommand('delete', false, null);
-      
-      // Insert new text using execCommand (works with Draft.js)
-      document.execCommand('insertText', false, value);
-      
-      // Dispatch input event for Draft.js to pick up
-      el.dispatchEvent(new InputEvent('input', {
-        bubbles: true,
-        cancelable: true,
-        inputType: 'insertText',
-        data: value
-      }));
-    } else {
-      // Generic contenteditable handling
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      
-      // Try execCommand first (more compatible with rich editors)
-      const success = document.execCommand('insertText', false, value);
-      if (!success) {
-        // Fallback to textContent
-        el.textContent = value;
-      }
-    }
-    return;
+    // Mark that we need debugger input (will be handled in executeStep)
+    el._needsDebuggerInput = true;
+    el._debuggerInputValue = value;
+    return 'USE_DEBUGGER';
   }
 
   if (el.value !== undefined) {
@@ -976,7 +935,69 @@ async function executeStep(step, settings) {
         // ignore
       }
 
-      setElementValue(target, nextValue);
+      const result = setElementValue(target, nextValue);
+      
+      // For contenteditable elements, use Debugger API
+      if (result === 'USE_DEBUGGER') {
+        const tabId = settings?.tabId;
+        if (tabId && (target.isContentEditable || target.getAttribute?.('role') === 'textbox')) {
+          try {
+            // Click on the element first to focus it properly
+            const rect = target.getBoundingClientRect();
+            const clickX = rect.left + rect.width / 2;
+            const clickY = rect.top + rect.height / 2;
+            
+            await new Promise((resolve) => {
+              chrome.runtime.sendMessage({
+                action: 'debuggerClick',
+                tabId: tabId,
+                x: clickX,
+                y: clickY,
+                clickCount: 1
+              }, resolve);
+            });
+            
+            await new Promise(r => setTimeout(r, 100));
+            
+            // Now insert text via debugger
+            const response = await new Promise((resolve) => {
+              chrome.runtime.sendMessage({
+                action: 'debuggerInsertText',
+                tabId: tabId,
+                text: nextValue
+              }, resolve);
+            });
+            
+            if (response && response.success) {
+              console.log('Debugger insertText succeeded for contenteditable');
+            } else {
+              console.warn('Debugger insertText failed, using fallback:', response?.error);
+              // Fallback: try execCommand
+              target.focus();
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(target);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              document.execCommand('insertText', false, nextValue);
+            }
+          } catch (e) {
+            console.warn('Debugger input error:', e);
+            // Fallback
+            target.textContent = nextValue;
+          }
+        } else {
+          // No tabId, use fallback
+          target.focus?.();
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.execCommand('insertText', false, nextValue);
+        }
+      }
+      
       dispatchValueEvents(target);
       break;
     }
