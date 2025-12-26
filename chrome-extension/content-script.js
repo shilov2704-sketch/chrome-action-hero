@@ -69,10 +69,21 @@ function findInteractiveElement(element) {
   
   let current = element;
   
+  // Step 0: Check if we're inside a modal-list-element (highest priority)
+  // This handles modal windows with checkboxes/radio buttons
+  let checkElement = element;
+  while (checkElement && checkElement !== document.body) {
+    const dataTest = checkElement.getAttribute('data-test');
+    if (dataTest && dataTest.includes('modal-list-element')) {
+      return checkElement;
+    }
+    checkElement = checkElement.parentElement;
+  }
+  
   // Step 1: Check if we're inside a priority interactive element (like <a> or <button>)
   // If so, use that element instead
   let priorityElement = null;
-  let checkElement = element;
+  checkElement = element;
   while (checkElement && checkElement !== document.body) {
     const tagName = checkElement.tagName?.toLowerCase();
     if (priorityInteractiveTags.includes(tagName) && checkElement.getAttribute('data-test')) {
