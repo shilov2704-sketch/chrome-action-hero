@@ -746,51 +746,99 @@ async function executeStep(step, settings) {
       await waitForNavigation();
       break;
 
-    case 'click':
+    case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
         // Scroll element into view
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // Check if this is a modal-list-element - if so, find and click the actual input inside
-        const dataTest = clickElement.getAttribute('data-test');
-        let actualClickTarget = clickElement;
-        
-        if (dataTest && dataTest.includes('modal-list-element')) {
-          // Find checkbox or radio button inside
-          const inputElement = clickElement.querySelector('input[type="checkbox"], input[type="radio"]');
-          if (inputElement) {
-            actualClickTarget = inputElement;
-          }
+        // Use recorded click offsets when possible (important for checkbox/radio inside list rows)
+        const containerRect = clickElement.getBoundingClientRect();
+        const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
+        const clickX = hasOffsets ? containerRect.left + step.offsetX : containerRect.left + containerRect.width / 2;
+        const clickY = hasOffsets ? containerRect.top + step.offsetY : containerRect.top + containerRect.height / 2;
+
+        let pointEl = null;
+        try {
+          pointEl = document.elementFromPoint(clickX, clickY);
+        } catch (e) {
+          // ignore
         }
 
-        // Use multiple click methods for better compatibility
-        const rect = actualClickTarget.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
+        const resolveReplayClickTarget = (container, atPoint) => {
+          const isWithin = atPoint && container.contains(atPoint);
+          const start = isWithin ? atPoint : container;
+
+          const isCheckableInput = (el) => {
+            const t = el?.tagName?.toLowerCase();
+            return t === 'input' && (el.type === 'checkbox' || el.type === 'radio');
+          };
+
+          const isRoleCheckable = (el) => {
+            const role = el?.getAttribute?.('role');
+            return role === 'checkbox' || role === 'radio';
+          };
+
+          const isClickable = (el) => {
+            const t = el?.tagName?.toLowerCase();
+            return (
+              isCheckableInput(el) ||
+              isRoleCheckable(el) ||
+              t === 'button' ||
+              t === 'a' ||
+              el?.getAttribute?.('role') === 'button'
+            );
+          };
+
+          let cur = start;
+          while (cur && cur !== document.body) {
+            if (isClickable(cur)) return cur;
+            if (cur === container) break;
+            cur = cur.parentElement;
+          }
+
+          // Fallback: search inside container for likely controls
+          const descendant = container.querySelector(
+            'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], button, a, [role="button"]'
+          );
+          return descendant || container;
+        };
+
+        const actualClickTarget = resolveReplayClickTarget(clickElement, pointEl);
+
+        try {
+          actualClickTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (e) {
+          // ignore
+        }
 
         const tagName = actualClickTarget.tagName?.toLowerCase();
-        const isInput = tagName === 'input' || tagName === 'select';
+        const role = actualClickTarget.getAttribute?.('role');
+        const isInput = tagName === 'input' || tagName === 'select' || role === 'checkbox' || role === 'radio';
         const hasDropdown = actualClickTarget.getAttribute('role') === 'combobox' || 
                             actualClickTarget.getAttribute('aria-haspopup') === 'listbox' ||
                             actualClickTarget.getAttribute('aria-haspopup') === 'true' ||
                             actualClickTarget.classList?.contains('select') ||
                             actualClickTarget.closest('[role="combobox"]');
 
-        // For input/select elements or elements with dropdowns, focus first
         if (isInput || hasDropdown) {
-          actualClickTarget.focus();
+          actualClickTarget.focus?.();
           await new Promise(resolve => setTimeout(resolve, 50));
         }
 
-        // Dispatch pointer events first (many modern frameworks use these for dropdowns)
+        // Remember checked state for real inputs (some UIs ignore synthetic clicks unless checked changes)
+        const isCheckableInput = tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio');
+        const beforeChecked = isCheckableInput ? actualClickTarget.checked : undefined;
+
+        // Dispatch pointer/mouse events with the original click coordinates
         actualClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y,
+          clientX: clickX,
+          clientY: clickY,
           pointerId: 1,
           pointerType: 'mouse',
           isPrimary: true
@@ -802,28 +850,27 @@ async function executeStep(step, settings) {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y,
+          clientX: clickX,
+          clientY: clickY,
           pointerId: 1,
           pointerType: 'mouse',
           isPrimary: true
         }));
 
-        // Mouse events for frameworks that listen to them
         actualClickTarget.dispatchEvent(new MouseEvent('mousedown', {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y
+          clientX: clickX,
+          clientY: clickY
         }));
 
         actualClickTarget.dispatchEvent(new MouseEvent('mouseup', {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y
+          clientX: clickX,
+          clientY: clickY
         }));
 
         // Try native click
@@ -834,25 +881,32 @@ async function executeStep(step, settings) {
           bubbles: true,
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y
+          clientX: clickX,
+          clientY: clickY
         }));
 
-        // For inputs, also trigger focus event to open dropdowns
-        if (isInput || hasDropdown) {
-          actualClickTarget.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-          actualClickTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        // For checkboxes/radios, ensure change/input events fire and checked actually flips
+        if (isCheckableInput) {
+          const afterChecked = actualClickTarget.checked;
+          if (afterChecked === beforeChecked) {
+            const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+            const next = actualClickTarget.type === 'radio' ? true : !beforeChecked;
+            desc?.set?.call(actualClickTarget, next);
+          }
+
+          try {
+            actualClickTarget.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+          } catch (e) {
+            actualClickTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+          }
+          actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
         }
 
-        // For checkboxes/radios, also dispatch change event
-        if (tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio')) {
-          actualClickTarget.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-
-        // Additional wait to ensure dropdown opens
         await new Promise(resolve => setTimeout(resolve, 150));
       }
       break;
+    }
+
 
     case 'change': {
       // Avoid writing into containers/wrappers: resolve to a real editable element.
