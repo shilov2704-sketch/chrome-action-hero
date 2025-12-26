@@ -812,13 +812,18 @@ async function executeStep(step, settings) {
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // Calculate click coordinates
+        // Calculate click coordinates (preserve recorded offsets)
         const containerRect = clickElement.getBoundingClientRect();
         const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
-        let clickX = hasOffsets ? containerRect.left + step.offsetX : containerRect.left + containerRect.width / 2;
-        let clickY = hasOffsets ? containerRect.top + step.offsetY : containerRect.top + containerRect.height / 2;
 
-        // Try to find the actual interactive element at the click point
+        const calcPoint = (rect) => ({
+          x: rect.left + (hasOffsets ? step.offsetX : rect.width / 2),
+          y: rect.top + (hasOffsets ? step.offsetY : rect.height / 2),
+        });
+
+        let { x: clickX, y: clickY } = calcPoint(containerRect);
+
+        // Try to find the actual element at the click point (hint only)
         let pointEl = null;
         try {
           pointEl = document.elementFromPoint(clickX, clickY);
@@ -826,69 +831,84 @@ async function executeStep(step, settings) {
           // ignore
         }
 
-        // Resolve to the best click target (checkbox/radio/button inside containers)
-        const resolveReplayClickTarget = (container, atPoint) => {
-          const isWithin = atPoint && container.contains(atPoint);
-          const start = isWithin ? atPoint : container;
+        // Default: click exactly what the selector resolved to.
+        // This is critical for short data-test wrappers like "::009b2q4::1" (checkbox inside <a>)
+        // and for any offset-based click.
+        const containerDataTest = clickElement.getAttribute?.('data-test') || '';
+        const shouldTrustSelectorTarget = hasOffsets || containerDataTest.startsWith('::');
 
-          const isCheckableInput = (el) => {
-            const t = el?.tagName?.toLowerCase();
-            return t === 'input' && (el.type === 'checkbox' || el.type === 'radio');
-          };
+        let actualClickTarget = clickElement;
 
-          const isRoleCheckable = (el) => {
-            const role = el?.getAttribute?.('role');
-            return role === 'checkbox' || role === 'radio';
-          };
+        if (!shouldTrustSelectorTarget) {
+          // Resolve to the best click target (checkbox/radio/button inside containers)
+          const resolveReplayClickTarget = (container, atPoint) => {
+            const isWithin = atPoint && container.contains(atPoint);
+            const start = isWithin ? atPoint : container;
 
-          // Custom checkboxes/radios are often <div data-test="CheckBox_*"> without role/input.
-          const isDataTestCheckable = (el) => {
-            const dt = (el?.getAttribute?.('data-test') || '').toLowerCase();
-            return dt.includes('checkbox') || dt.includes('radio');
-          };
+            const isCheckableInput = (el) => {
+              const t = el?.tagName?.toLowerCase();
+              return t === 'input' && (el.type === 'checkbox' || el.type === 'radio');
+            };
 
-          const isClickable = (el) => {
-            const t = el?.tagName?.toLowerCase();
-            return (
-              isDataTestCheckable(el) ||
-              isCheckableInput(el) ||
-              isRoleCheckable(el) ||
-              t === 'button' ||
-              t === 'a' ||
-              el?.getAttribute?.('role') === 'button'
+            const isRoleCheckable = (el) => {
+              const role = el?.getAttribute?.('role');
+              return role === 'checkbox' || role === 'radio';
+            };
+
+            // Custom checkboxes/radios are often <div data-test="CheckBox_*"> without role/input.
+            const isDataTestCheckable = (el) => {
+              const dt = (el?.getAttribute?.('data-test') || '').toLowerCase();
+              return dt.includes('checkbox') || dt.includes('radio');
+            };
+
+            const isClickable = (el) => {
+              const t = el?.tagName?.toLowerCase();
+              return (
+                isDataTestCheckable(el) ||
+                isCheckableInput(el) ||
+                isRoleCheckable(el) ||
+                t === 'button' ||
+                t === 'a' ||
+                el?.getAttribute?.('role') === 'button'
+              );
+            };
+
+            let cur = start;
+            while (cur && cur !== document.body) {
+              if (isClickable(cur)) return cur;
+              if (cur === container) break;
+              cur = cur.parentElement;
+            }
+
+            // Fallback: search inside container for likely controls
+            const descendant = container.querySelector(
+              'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], button, a, [role="button"]'
             );
+            return descendant || container;
           };
 
-          let cur = start;
-          while (cur && cur !== document.body) {
-            if (isClickable(cur)) return cur;
-            if (cur === container) break;
-            cur = cur.parentElement;
+          actualClickTarget = resolveReplayClickTarget(clickElement, pointEl);
+
+          // If we resolved to a different element, recalculate coordinates to its center
+          if (actualClickTarget !== clickElement && actualClickTarget !== pointEl) {
+            const targetRect = actualClickTarget.getBoundingClientRect();
+            clickX = targetRect.left + targetRect.width / 2;
+            clickY = targetRect.top + targetRect.height / 2;
           }
-
-          // Fallback: search inside container for likely controls
-          const descendant = container.querySelector(
-            'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], button, a, [role="button"]'
-          );
-          return descendant || container;
-        };
-
-        const actualClickTarget = resolveReplayClickTarget(clickElement, pointEl);
-
-        // If we resolved to a different element, recalculate coordinates to its center
-        if (actualClickTarget !== clickElement && actualClickTarget !== pointEl) {
-          const targetRect = actualClickTarget.getBoundingClientRect();
-          clickX = targetRect.left + targetRect.width / 2;
-          clickY = targetRect.top + targetRect.height / 2;
         }
 
         try {
           actualClickTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
           await new Promise(resolve => setTimeout(resolve, 100));
-          // Recalculate after scroll
+
+          // Recalculate after scroll (keep offsets only when clicking the original selector target)
           const newRect = actualClickTarget.getBoundingClientRect();
-          clickX = newRect.left + newRect.width / 2;
-          clickY = newRect.top + newRect.height / 2;
+          if (actualClickTarget === clickElement) {
+            ({ x: clickX, y: clickY } = calcPoint(newRect));
+          } else {
+            clickX = newRect.left + newRect.width / 2;
+            clickY = newRect.top + newRect.height / 2;
+          }
         } catch (e) {
           // ignore
         }
