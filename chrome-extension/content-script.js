@@ -83,6 +83,7 @@ function findInteractiveElement(element) {
   // Step 1: Check if the clicked element itself is a checkbox/radio button
   // These should NOT be overridden by parent <a> or <button>
   let isCheckboxOrRadio = false;
+  let checkboxParentWithShortDataTest = null;
   checkElement = element;
   while (checkElement && checkElement !== document.body) {
     const dataTest = checkElement.getAttribute('data-test') || '';
@@ -97,6 +98,25 @@ function findInteractiveElement(element) {
         inputType === 'checkbox' || 
         inputType === 'radio') {
       isCheckboxOrRadio = true;
+      
+      // For checkboxes inside links, find parent div with data-test starting with '::'
+      // Structure: <a> > <div ListItem> > <div ::xxx::0> > <div ::xxx::1> > <div CheckBox>
+      // We want the div with data-test='::xxx::1' (immediate parent of checkbox)
+      let parent = checkElement.parentElement;
+      while (parent && parent !== document.body) {
+        const parentDataTest = parent.getAttribute('data-test') || '';
+        // Look for data-test starting with '::' (like '::009b2q4::1')
+        if (parentDataTest.startsWith('::')) {
+          checkboxParentWithShortDataTest = parent;
+          break;
+        }
+        // Stop if we hit the <a> or another interactive element
+        const parentTag = parent.tagName?.toLowerCase();
+        if (parentTag === 'a' || parentTag === 'button') {
+          break;
+        }
+        parent = parent.parentElement;
+      }
       break;
     }
     
@@ -106,6 +126,11 @@ function findInteractiveElement(element) {
       break;
     }
     checkElement = checkElement.parentElement;
+  }
+  
+  // If we found a parent with short data-test (::xxx::1), use it instead of checkbox
+  if (checkboxParentWithShortDataTest) {
+    return checkboxParentWithShortDataTest;
   }
   
   // Step 2: Check if we're inside a priority interactive element (like <a> or <button>)
