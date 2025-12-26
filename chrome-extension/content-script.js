@@ -80,20 +80,50 @@ function findInteractiveElement(element) {
     checkElement = checkElement.parentElement;
   }
   
-  // Step 1: Check if we're inside a priority interactive element (like <a> or <button>)
-  // If so, use that element instead
-  let priorityElement = null;
+  // Step 1: Check if the clicked element itself is a checkbox/radio button
+  // These should NOT be overridden by parent <a> or <button>
+  let isCheckboxOrRadio = false;
   checkElement = element;
   while (checkElement && checkElement !== document.body) {
+    const dataTest = checkElement.getAttribute('data-test') || '';
+    const role = checkElement.getAttribute('role') || '';
+    const inputType = checkElement.tagName?.toLowerCase() === 'input' ? checkElement.type : '';
+    
+    // Check if this is a checkbox or radio button
+    if (dataTest.toLowerCase().includes('checkbox') || 
+        dataTest.toLowerCase().includes('radio') ||
+        role === 'checkbox' || 
+        role === 'radio' ||
+        inputType === 'checkbox' || 
+        inputType === 'radio') {
+      isCheckboxOrRadio = true;
+      break;
+    }
+    
+    // Stop checking parents if we hit an <a> or <button>
     const tagName = checkElement.tagName?.toLowerCase();
-    if (priorityInteractiveTags.includes(tagName) && checkElement.getAttribute('data-test')) {
-      priorityElement = checkElement;
+    if (tagName === 'a' || tagName === 'button') {
       break;
     }
     checkElement = checkElement.parentElement;
   }
   
-  // If we found a priority interactive element, use it
+  // Step 2: Check if we're inside a priority interactive element (like <a> or <button>)
+  // But ONLY use it if we're NOT clicking on a checkbox/radio inside it
+  let priorityElement = null;
+  if (!isCheckboxOrRadio) {
+    checkElement = element;
+    while (checkElement && checkElement !== document.body) {
+      const tagName = checkElement.tagName?.toLowerCase();
+      if (priorityInteractiveTags.includes(tagName) && checkElement.getAttribute('data-test')) {
+        priorityElement = checkElement;
+        break;
+      }
+      checkElement = checkElement.parentElement;
+    }
+  }
+  
+  // If we found a priority interactive element (and not a checkbox/radio), use it
   if (priorityElement) {
     return priorityElement;
   }
