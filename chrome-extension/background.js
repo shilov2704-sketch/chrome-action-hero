@@ -41,6 +41,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
+  if (message.action === 'debuggerInsertText') {
+    handleDebuggerInsertText(message.tabId, message.text)
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+  
   sendResponse({ received: true });
   return true;
 });
@@ -123,6 +130,51 @@ async function handleDebuggerClick(tabId, x, y, clickCount) {
   });
   
   console.log('Debugger click dispatched at', x, y);
+}
+
+async function handleDebuggerInsertText(tabId, text) {
+  // Ensure debugger is attached
+  if (!attachedTabs.has(tabId)) {
+    await attachDebugger(tabId);
+  }
+  
+  const sendDebuggerCommand = (method, params) => {
+    return new Promise((resolve, reject) => {
+      chrome.debugger.sendCommand({ tabId }, method, params, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(result);
+        }
+      });
+    });
+  };
+  
+  // First, select all content (Ctrl+A) to replace existing text
+  await sendDebuggerCommand('Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    modifiers: 2, // Ctrl
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65
+  });
+  
+  await sendDebuggerCommand('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    modifiers: 2,
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65
+  });
+  
+  await new Promise(r => setTimeout(r, 50));
+  
+  // Use Input.insertText to insert the text (this works with contenteditable)
+  await sendDebuggerCommand('Input.insertText', {
+    text: text
+  });
+  
+  console.log('Debugger insertText completed:', text.substring(0, 50) + '...');
 }
 
 // Handle debugger detach events
