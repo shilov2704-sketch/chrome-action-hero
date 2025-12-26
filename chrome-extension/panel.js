@@ -10,8 +10,7 @@ const state = {
   selectedSelectors: ['css', 'xpath'],
   replaySettings: {
     throttling: 'none',
-    timeout: 5000,
-    stepDelay: 100
+    timeout: 5000
   },
   theme: 'light'
 };
@@ -169,10 +168,8 @@ function initializeEventListeners() {
   document.getElementById('replayBtn').addEventListener('click', () => {
     const speed = document.getElementById('replaySpeed').value;
     const timeout = parseInt(document.getElementById('replayTimeout').value) || 5000;
-    const stepDelay = parseInt(document.getElementById('stepDelay').value) || 100;
-    // Update replay settings with timeout and stepDelay
+    // Update replay settings with timeout
     state.replaySettings.timeout = timeout;
-    state.replaySettings.stepDelay = stepDelay;
     replayRecording(speed);
     
     // Show Stop Replay button, hide Replay button
@@ -358,11 +355,6 @@ function handleRecordedEvent(message) {
   if (message.action === 'recordedEvent' && state.isRecording) {
     const step = message.event;
     const steps = state.currentRecording.steps;
-
-    // User requested: do NOT record hover steps (even if a stale content-script still emits them)
-    if (step?.type === 'hover') {
-      return;
-    }
     
     // Skip setViewport and navigate if continuing recording
     if (state.isContinuingRecording && (step.type === 'setViewport' || step.type === 'navigate')) {

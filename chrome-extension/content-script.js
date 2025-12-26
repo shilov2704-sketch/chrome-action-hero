@@ -26,10 +26,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Hover detection state
-let hoverDebounceTimer = null;
-let lastHoveredElement = null;
-
 function startRecording(selectors) {
   isRecording = true;
   selectedSelectors = selectors;
@@ -47,15 +43,11 @@ function startRecording(selectors) {
   document.addEventListener('input', handleInput, true);
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
-  // NOTE: hover recording disabled - user requested removal of hover actions
 
   console.log('Recording started');
 }
 
 function stopRecording() {
-  // Flush any pending debounced input before stopping
-  flushPendingInputEvents();
-
   isRecording = false;
 
   // Remove event listeners
@@ -64,349 +56,53 @@ function stopRecording() {
   document.removeEventListener('input', handleInput, true);
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
-  // NOTE: hover recording disabled
 
   console.log('Recording stopped', recordedEvents);
 }
 
-function isElementVisible(el) {
-  if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
-  const style = window.getComputedStyle(el);
-  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-  const rect = el.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
-}
-
-function findBestDataTestDescendantAtPoint(root, x, y, opts = {}) {
-  const {
-    containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i,
-    interactiveDataTest = /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i,
-    leafTags = new Set(['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small']),
-    maxNodes = 1500,
-  } = opts;
-
-  if (!root || root.nodeType !== Node.ELEMENT_NODE) return null;
-  if (typeof x !== 'number' || typeof y !== 'number') return null;
-
-  const nodes = [];
-  try {
-    if (root.hasAttribute?.('data-test')) nodes.push(root);
-    const list = root.querySelectorAll?.('[data-test]');
-    if (list && list.length) nodes.push(...list);
-  } catch (e) {
-    // ignore
-  }
-
-  let best = null;
-  let bestScore = -Infinity;
-
-  const limit = Math.min(nodes.length, maxNodes);
-
-  for (let i = 0; i < limit; i++) {
-    const el = nodes[i];
-    if (!el || el.nodeType !== Node.ELEMENT_NODE) continue;
-
-    const dt = el.getAttribute?.('data-test');
-    if (!dt) continue;
-
-    // Never pick known containers
-    if (containerDataTest.test(dt)) continue;
-
-    let rect;
-    try {
-      rect = el.getBoundingClientRect();
-    } catch (e) {
-      continue;
-    }
-
-    if (!rect || rect.width <= 0 || rect.height <= 0) continue;
-    const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-    if (!inside) continue;
-
-    const tag = el.tagName?.toLowerCase();
-
-    // Score: strongly prefer interactive components; then deeper/smaller elements at the point.
-    const area = Math.max(1, rect.width * rect.height);
-    const areaPenalty = Math.log(area + 1) * 50;
-
-    let depth = 0;
-    let p = el.parentElement;
-    while (p && p !== root && depth < 15) {
-      depth++;
-      p = p.parentElement;
-    }
-
-    let score = depth * 20 - areaPenalty;
-
-    if (interactiveDataTest.test(dt)) score += 10000;
-
-    // Avoid leaf nodes like span/p when a parent wrapper is the actual clickable element
-    if (leafTags.has(tag)) score -= 2000;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = el;
-    }
-  }
-
-  return best;
-}
-
-function pickBestInteractiveFromEvent(event) {
-  if (!event) return null;
-
-  const leafTags = new Set([
-    'svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g',
-    'p', 'strong', 'em', 'b', 'small'
-  ]);
-
-  // Layout wrappers/containers that must never be recorded as the clicked element
-  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i;
-
-  const isInteractiveComponent = (dt) => {
-    if (!dt) return false;
-    // Include Link_ for <a> elements with data-test
-    return /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_|Link_|NavItem_|SidebarItem_/i.test(dt);
-  };
-  
-  // Interactive HTML tags that should be prioritized
-  const isInteractiveTag = (tag) => {
-    return ['a', 'button', 'input', 'select', 'textarea'].includes(tag);
-  };
-
-  // PRIMARY STRATEGY: use the actual visual stack under the cursor (works even when event.target is retargeted)
-  if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
-    const x = event.clientX;
-    const y = event.clientY;
-
-    const stack = typeof document.elementsFromPoint === 'function'
-      ? document.elementsFromPoint(x, y)
-      : [document.elementFromPoint(x, y)].filter(Boolean);
-
-    // Walk from the deepest painted element upwards and pick the first meaningful data-test.
-    let firstNonContainer = null;
-
-    for (let i = stack.length - 1; i >= 0; i--) {
-      let el = stack[i];
-      while (el && el !== document.body) {
-        if (el.nodeType !== Node.ELEMENT_NODE) break;
-
-        const tag = el.tagName?.toLowerCase();
-        const dt = el.getAttribute?.('data-test');
-
-        // Prioritize interactive HTML tags (a, button, input, etc.) even without special data-test patterns
-        if (dt && !containerDataTest.test(dt) && !leafTags.has(tag)) {
-          if (isInteractiveComponent(dt) || isInteractiveTag(tag)) return el;
-          if (!firstNonContainer) firstNonContainer = el;
-        }
-
-        el = el.parentElement;
-      }
-
-      if (firstNonContainer) {
-        // Keep checking for an interactive element, but if none exists we'll return this.
-        // (Do not early-return here)
-      }
-    }
-
-    if (firstNonContainer) return firstNonContainer;
-
-    // As a last resort, try a point-based descendant scan inside event.target
-    const root = (event.target && event.target.nodeType === Node.ELEMENT_NODE) ? event.target : null;
-    const byPoint = findBestDataTestDescendantAtPoint(root, x, y, {
-      containerDataTest,
-      interactiveDataTest: /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i,
-      leafTags,
-      maxNodes: 20000,
-    });
-    if (byPoint) return byPoint;
-  }
-
-  // FALLBACK: composedPath / event.target chain
-  const path = (typeof event.composedPath === 'function') ? event.composedPath() : [];
-  const candidates = [...path, event.target].filter((n) => n && n.nodeType === Node.ELEMENT_NODE);
-
-  for (const raw of candidates) {
-    let el = raw;
-    while (el && el !== document.body) {
-      const tag = el.tagName?.toLowerCase();
-      const dt = el.getAttribute?.('data-test');
-      if (dt && !containerDataTest.test(dt) && !leafTags.has(tag)) {
-        if (isInteractiveComponent(dt)) return el;
-        return el;
-      }
-      el = el.parentElement;
-    }
-  }
-
-  return null;
-}
-
-function findInteractiveElement(element, event = null) {
-  const fromEvent = pickBestInteractiveFromEvent(event);
-  if (fromEvent) return fromEvent;
-
+function findInteractiveElement(element) {
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
-
-  // Layout wrappers/containers that must never be recorded as the clicked element
-  const containerDataTest = /virtuoso-item-list|List_ListWithScroll|ModalWindowItem_ModalWindowItemRoot|TabsStyledVertical_TabsContainer|TabsContainer/i;
-
-  const scoreDataTest = (dt) => {
-    if (!dt) return -1;
-    if (containerDataTest.test(dt)) return -10000;
-
-    let score = 0;
-    if (/MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i.test(dt)) score += 200;
-    if (/(?:^|_)ListItem(?:_|$)|ListItemRoot|Material_Root|modal-list-element-\d+/i.test(dt)) score += 160;
-    if (/Button|Tab|Option|Select|Dropdown|Popover|Dialog|CheckBox|Radio|Input|TextArea|Textbox/i.test(dt)) score += 120;
-    if (/^::[a-z0-9]+::\d+$/i.test(dt)) score += 5;
-    if (dt.includes('_')) score += 25;
-    score += Math.min(dt.length, 80) / 8;
-    return score;
-  };
-
+  
   let current = element;
-
-  // Step 1: If we're on a leaf element, go up until we find a non-leaf
+  
+  // Step 1: If we're on a leaf element, go up until we find a non-leaf with data-test
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
-
+    
     if (leafTags.includes(tagName)) {
       current = current.parentElement;
       continue;
     }
-
+    
+    // Found a non-leaf element
     break;
   }
-
-  // If we landed on a container, prefer searching inside it by click coordinates (if available)
-  if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
-    const dt = current?.getAttribute?.('data-test');
-    if (dt && containerDataTest.test(dt)) {
-      const byPoint = findBestDataTestDescendantAtPoint(current, event.clientX, event.clientY, {
-        containerDataTest,
-      });
-      if (byPoint) return byPoint;
+  
+  // Step 2: If current element has data-test, use it directly
+  if (current && current.getAttribute('data-test')) {
+    return current;
+  }
+  
+  // Step 3: If no data-test, look up for the closest element with data-test
+  while (current && current !== document.body) {
+    if (current.getAttribute('data-test')) {
+      return current;
     }
-  }
-
-  // Step 2: Walk up and pick the best data-test scored element
-  let best = null;
-  let bestScore = -1;
-  let candidate = current;
-  let hops = 0;
-
-  while (candidate && candidate !== document.body && hops < 20) {
-    const dt = candidate.getAttribute?.('data-test');
-    const s = scoreDataTest(dt);
-
-    if (s > bestScore) {
-      bestScore = s;
-      best = candidate;
-    }
-
-    // Early exit for MenuItem_*
-    if (bestScore >= 200) {
-      return best;
-    }
-
-    candidate = candidate.parentElement;
-    hops++;
-  }
-
-  if (best && bestScore > 0) {
-    return best;
-  }
-
-  // Last resort: try by-point inside current element (handles retargeting)
-  if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
-    const byPoint = findBestDataTestDescendantAtPoint(current || element, event.clientX, event.clientY, {
-      containerDataTest,
-    });
-    if (byPoint) return byPoint;
-  }
-
-  return current || element;
-}
-
-function flushPendingInputEvents() {
-  if (!isRecording) return;
-
-  for (const [target, timer] of Array.from(inputDebounceTimers.entries())) {
-    try {
-      clearTimeout(timer);
-      inputDebounceTimers.delete(target);
-
-      if (!target || !target.isConnected) continue;
-
-      const selectors = generateSelectors(target, 'change');
-      const value = target.value !== undefined ? target.value : target.textContent;
-
-      recordEvent({
-        type: 'change',
-        value: value,
-        selectors: selectors,
-        target: 'main',
-        url: window.location.href
-      });
-    } catch (e) {
-      // ignore
-    }
-  }
-}
-
-function getElementText(element) {
-  if (!element) return null;
-  
-  // For buttons and links, get the visible text
-  const tagName = element.tagName?.toLowerCase();
-  
-  // Get direct text content, excluding deeply nested text
-  const getDirectText = (el) => {
-    let text = '';
-    for (const node of el.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        text += node.textContent;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        const childTag = node.tagName?.toLowerCase();
-        // Include text from simple inline elements
-        if (['span', 'strong', 'em', 'b', 'i', 'small'].includes(childTag)) {
-          text += getDirectText(node);
-        }
-      }
-    }
-    return text.trim();
-  };
-  
-  let text = getDirectText(element);
-  
-  // Fallback to textContent if no direct text found (but limit length)
-  if (!text && element.textContent) {
-    text = element.textContent.trim();
+    current = current.parentElement;
   }
   
-  // Limit text length
-  if (text && text.length > 100) {
-    text = text.substring(0, 100) + '...';
-  }
-  
-  return text || null;
+  // Fallback to original element
+  return element;
 }
 
 function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
-  // Ensure pending input debounces are recorded BEFORE the click (fixes textarea "not saved" cases)
-  flushPendingInputEvents();
-
   // Find the actual interactive element instead of using event.target directly
-  const target = findInteractiveElement(event.target, event);
+  const target = findInteractiveElement(event.target);
   const selectors = generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
-  
-  // Get element text for better debugging and readability
-  const elementText = getElementText(target);
 
   const clickEvent = {
     type: 'click',
@@ -416,11 +112,6 @@ function handleClick(event) {
     offsetY: event.clientY - rect.top,
     url: window.location.href
   };
-  
-  // Add text if available
-  if (elementText) {
-    clickEvent.text = elementText;
-  }
 
   recordEvent(clickEvent);
 }
@@ -503,65 +194,6 @@ function handleKeyUp(event) {
   recordEvent(keyEvent);
 }
 
-// Patterns for hover-triggered elements (dropdowns, menus, tooltips)
-const hoverTriggerPatterns = /dropdown|menu|tooltip|popover|hover|trigger|nav-item|submenu/i;
-
-function handleHover(event) {
-  if (!isRecording || isPickingElement) return;
-  
-  const target = event.target;
-  
-  // Clear existing debounce timer
-  if (hoverDebounceTimer) {
-    clearTimeout(hoverDebounceTimer);
-  }
-  
-  // Debounce hover events (300ms)
-  hoverDebounceTimer = setTimeout(() => {
-    // Find interactive element
-    const interactiveElement = findInteractiveElement(target);
-    
-    // Skip if same element as last hover
-    if (interactiveElement === lastHoveredElement) {
-      return;
-    }
-    
-    // Check if this element or its parent could trigger hover behavior
-    const dataTest = interactiveElement.getAttribute('data-test') || '';
-    const className = interactiveElement.className || '';
-    const role = interactiveElement.getAttribute('role') || '';
-    const ariaHasPopup = interactiveElement.getAttribute('aria-haspopup');
-    const ariaExpanded = interactiveElement.getAttribute('aria-expanded');
-    
-    // Check for hover-triggered elements
-    const isHoverTrigger = 
-      hoverTriggerPatterns.test(dataTest) ||
-      hoverTriggerPatterns.test(className) ||
-      ariaHasPopup === 'true' ||
-      ariaExpanded !== null ||
-      role === 'menuitem' ||
-      role === 'button' && ariaHasPopup;
-    
-    if (isHoverTrigger) {
-      lastHoveredElement = interactiveElement;
-      
-      const selectors = generateSelectors(interactiveElement, 'hover');
-      const rect = interactiveElement.getBoundingClientRect();
-      
-      const hoverEvent = {
-        type: 'hover',
-        target: 'main',
-        selectors: selectors,
-        offsetX: rect.width / 2,
-        offsetY: rect.height / 2,
-        url: window.location.href
-      };
-      
-      recordEvent(hoverEvent);
-    }
-  }, 300);
-}
-
 function recordViewport() {
   const viewportEvent = {
     type: 'setViewport',
@@ -593,25 +225,8 @@ function recordNavigation() {
 }
 
 function generateSelectors(element, eventType = null) {
-  // In this project every element has data-test and locators must be XPath by data-test only.
-  if (element?.hasAttribute?.('data-test')) {
-    const dataTest = element.getAttribute('data-test');
-    if (typeof dataTest === 'string') {
-      const toXPathLiteral = (s) => {
-        if (!s.includes("'")) return `'${s}'`;
-        if (!s.includes('"')) return `"${s}"`;
-        // Extremely rare: contains both quotes
-        const parts = s.split("'").map((p) => `'${p}'`);
-        return `concat(${parts.join(", \"'\", ")})`;
-      };
-
-      const literal = toXPathLiteral(dataTest);
-      return [[`xpath//*[@data-test=${literal}]`]];
-    }
-  }
-
-  // Safety fallback for non-instrumented pages
   const selectors = [];
+
   selectedSelectors.forEach((selectorType) => {
     try {
       switch (selectorType) {
@@ -620,21 +235,25 @@ function generateSelectors(element, eventType = null) {
           if (cssSelector) selectors.push([cssSelector]);
           break;
         }
+
         case 'xpath': {
           const xpathSelector = generateXPathSelector(element, eventType);
           if (xpathSelector) selectors.push([xpathSelector]);
           break;
         }
+
         case 'aria': {
           const ariaSelector = generateARIASelector(element);
           if (ariaSelector) selectors.push([ariaSelector]);
           break;
         }
+
         case 'text': {
           const textSelector = generateTextSelector(element);
           if (textSelector) selectors.push([textSelector]);
           break;
         }
+
         case 'pierce': {
           const pierceSelector = generatePierceSelector(element);
           if (pierceSelector) selectors.push([pierceSelector]);
@@ -701,23 +320,16 @@ function generateXPathSelector(element, eventType = null) {
 }
 
 function generateARIASelector(element) {
-  // Only generate ARIA selectors when they are likely to be specific.
-  // IMPORTANT: role-only selectors like [role="button"] are too generic and can click the wrong element.
+  const role = element.getAttribute('role');
   const label = element.getAttribute('aria-label');
-  const labelledBy = element.getAttribute('aria-labelledby');
-  const valueText = element.getAttribute('aria-valuetext');
-  const value = element.value;
+  const value = element.getAttribute('aria-valuetext') || element.value;
+
+  if (role) {
+    return `aria/[role="${role}"]`;
+  }
 
   if (label) {
     return `aria/${label}`;
-  }
-
-  if (labelledBy) {
-    return `aria/${labelledBy}`;
-  }
-
-  if (valueText) {
-    return `aria/${valueText}`;
   }
 
   if (value) {
@@ -792,21 +404,6 @@ function generateTextSelector(element) {
     return null;
   }
   
-  // For list items and other container elements, find text within child spans/divs
-  const dataTest = element.getAttribute('data-test');
-  if (dataTest && /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i.test(dataTest)) {
-    // Look for text in child elements
-    const textElements = element.querySelectorAll('span, p, div');
-    for (const textEl of textElements) {
-      // Skip elements with many children (containers)
-      if (textEl.children.length > 0) continue;
-      const childText = textEl.textContent?.trim();
-      if (childText && childText.length > 0 && childText.length < 50) {
-        return `text/${childText}`;
-      }
-    }
-  }
-  
   // For other elements, use textContent
   const text = element.textContent?.trim();
   if (text && text.length < 50) {
@@ -823,12 +420,7 @@ function generatePierceSelector(element) {
 
 function recordEvent(event) {
   const last = recordedEvents[recordedEvents.length - 1];
-
-  // User requested: do NOT record hover actions.
-  if (event.type === 'hover') {
-    return;
-  }
-
+  
   // Filter out keyDown/keyUp events - we only need change events for text input
   if (event.type === 'keyDown' || event.type === 'keyUp') {
     return;
@@ -978,10 +570,7 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
   console.log('Replaying recording:', recording.title);
   
   isReplaying = true;
-  
-  // Use configurable stepDelay from settings, fallback to speed-based delay
-  const baseDelay = speed === 'slow' ? 1000 : 100;
-  const delay = settings.stepDelay !== undefined ? settings.stepDelay : baseDelay;
+  const delay = speed === 'slow' ? 1000 : 100;
 
   for (let i = 0; i < recording.steps.length; i++) {
     const actualIndex = startIndex + i;
@@ -1000,7 +589,6 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
       status: 'executing'
     });
     
-    // Apply step delay
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
@@ -1065,298 +653,64 @@ async function executeStep(step, settings) {
       await waitForNavigation();
       break;
 
-    case 'click': {
-      // Patterns for detecting if target is a MenuItem (likely inside a dropdown)
-      const menuItemPatterns = /MenuItem(?:_|$)|MenuItemRoot|MenuItem_MenuItemRoot/i;
-      const dropdownTriggerPatterns = /trigger|select|dropdown|combobox|popover/i;
-
-      // Extract recorded data-test from selectors
-      const recordedDataTest = (() => {
-        if (!Array.isArray(step.selectors)) return null;
-        for (const arr of step.selectors) {
-          const s = arr?.[0];
-          if (typeof s !== 'string') continue;
-          const m = s.match(/^xpath\/\/\*\[@data-test='([^']+)'\]$/);
-          if (m) return m[1];
-        }
-        return null;
-      })();
-
-      // --- Auto-open dropdown if target is a MenuItem or Option but not yet in DOM ---
-      const isMenuItem = recordedDataTest && menuItemPatterns.test(recordedDataTest);
-      const isDropdownOption = recordedDataTest && /Option_|SelectItem_|ListItem_|DropdownItem_/i.test(recordedDataTest);
-      let clickElement = findElement(step.selectors);
-
-      if (!clickElement && (isMenuItem || isDropdownOption)) {
-        // Try to find and click dropdown triggers to open menus/dropdowns
-        const triggerSelectors = [
-          '[aria-haspopup="true"]',
-          '[aria-haspopup="listbox"]',
-          '[aria-haspopup="menu"]',
-          '[role="combobox"]',
-          '[role="listbox"]',
-          '[data-test*="Trigger"]',
-          '[data-test*="Select"]',
-          '[data-test*="Dropdown"]',
-          '[data-test*="Combobox"]',
-          'button[aria-expanded]',
-          '[data-test*="Input_"][data-test*="Select"]',
-          '[data-test*="FormField_"]'
-        ];
-        
-        const triggers = Array.from(document.querySelectorAll(triggerSelectors.join(', ')));
-
-        for (const trigger of triggers) {
-          const expanded = trigger.getAttribute('aria-expanded');
-          // If already expanded, skip
-          if (expanded === 'true') continue;
-
-          // Click trigger to open dropdown
-          try {
-            trigger.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-            await new Promise(r => setTimeout(r, 100));
-            
-            // Try synthetic click first
-            trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-            await new Promise(r => setTimeout(r, 30));
-            trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-            trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            
-            // Wait for dropdown to appear
-            await new Promise(r => setTimeout(r, 300));
-
-            // Check if our target appeared
-            clickElement = findElement(step.selectors);
-            if (clickElement) break;
-            
-            // Also try native click if synthetic didn't work
-            trigger.click();
-            await new Promise(r => setTimeout(r, 300));
-            
-            clickElement = findElement(step.selectors);
-            if (clickElement) break;
-          } catch (e) {
-            console.warn('Failed to click dropdown trigger:', e);
-          }
-        }
-      }
-
-      // Standard wait for element (in case auto-open worked or element was loading)
-      if (!clickElement) {
-        clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
-      }
-
+    case 'click':
+      const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
-        const listItemPatterns = /ListItem|_Item_|ItemRoot|Material_Root|modal-list-element/i;
-        const checkboxRadioPatterns = /CheckBox|Radio|Circle_Svg|CheckBoxRoot|CheckBoxField/i;
-
-        let baseElement = clickElement;
-
-        // For checkbox/radio clicks - find the parent ListItem to click
-        if (recordedDataTest && checkboxRadioPatterns.test(recordedDataTest)) {
-          let candidate = clickElement;
-          while (candidate && candidate !== document.body) {
-            const dt = candidate.getAttribute?.('data-test');
-            if (dt && listItemPatterns.test(dt)) {
-              baseElement = candidate;
-              break;
-            }
-            candidate = candidate.parentElement;
-          }
-        } else if (recordedDataTest && listItemPatterns.test(recordedDataTest)) {
-          let candidate = clickElement;
-          while (candidate && candidate !== document.body) {
-            const dt = candidate.getAttribute?.('data-test');
-            if (dt && listItemPatterns.test(dt)) {
-              baseElement = candidate;
-              break;
-            }
-            candidate = candidate.parentElement;
-          }
-        }
-
-        // Scroll into view
-        baseElement.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-        await new Promise(r => setTimeout(r, 80));
-
-        const rect = baseElement.getBoundingClientRect();
-        const hasOffsets = typeof step.offsetX === 'number' && typeof step.offsetY === 'number';
-        const isCheckboxRadio = recordedDataTest && checkboxRadioPatterns.test(recordedDataTest);
-
-        const ox = isCheckboxRadio
-          ? rect.width / 2
-          : (hasOffsets ? Math.min(Math.max(step.offsetX, 1), Math.max(1, rect.width - 1)) : rect.width / 2);
-        const oy = isCheckboxRadio
-          ? rect.height / 2
-          : (hasOffsets ? Math.min(Math.max(step.offsetY, 1), Math.max(1, rect.height - 1)) : rect.height / 2);
-
-        const xRaw = rect.left + ox;
-        const yRaw = rect.top + oy;
-        const x = Math.min(Math.max(xRaw, 1), window.innerWidth - 2);
-        const y = Math.min(Math.max(yRaw, 1), window.innerHeight - 2);
-
-        let dispatchTarget = document.elementFromPoint(x, y);
-        if (!dispatchTarget || !baseElement.contains(dispatchTarget) || dispatchTarget === document.documentElement || dispatchTarget === document.body) {
-          dispatchTarget = baseElement;
-        }
-
-        // Focus element (silently)
-        try {
-          if (typeof dispatchTarget.focus === 'function') {
-            dispatchTarget.focus({ preventScroll: true });
-          } else if (typeof baseElement.focus === 'function') {
-            baseElement.focus({ preventScroll: true });
-          }
-        } catch (e) { /* ignore */ }
-
-        // --- Realistic click sequence (avoids crashes from long synthetic sequences) ---
-        // Using a minimal but more realistic approach: pointerdown -> mousedown -> pointerup -> mouseup -> click
-        const eventInit = {
-          bubbles: true,
+        // Scroll element into view
+        clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Use multiple click methods for better compatibility
+        const rect = clickElement.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        
+        // Try native click first
+        clickElement.click();
+        
+        // Also dispatch mouse events for frameworks that listen to them
+        clickElement.dispatchEvent(new MouseEvent('mousedown', { 
+          bubbles: true, 
           cancelable: true,
           view: window,
-          clientX: x,
-          clientY: y,
-          screenX: x,
-          screenY: y,
-          button: 0,
-          buttons: 1,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
-          detail: 1
-        };
-
-        try {
-          // pointerdown + mousedown
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-          dispatchTarget.dispatchEvent(new MouseEvent('mousedown', eventInit));
-          await new Promise(r => setTimeout(r, 30));
-
-          // pointerup + mouseup
-          const upInit = { ...eventInit, buttons: 0 };
-          dispatchTarget.dispatchEvent(new PointerEvent('pointerup', upInit));
-          dispatchTarget.dispatchEvent(new MouseEvent('mouseup', upInit));
-          await new Promise(r => setTimeout(r, 10));
-
-          // click
-          dispatchTarget.dispatchEvent(new MouseEvent('click', upInit));
-        } catch (e) {
-          // Fallback: native click
-          console.warn('Synthetic click failed, using native click:', e);
-          try { dispatchTarget.click(); } catch (e2) { baseElement.click(); }
-        }
-
-        await new Promise(r => setTimeout(r, 120));
+          clientX: x, 
+          clientY: y 
+        }));
+        
+        clickElement.dispatchEvent(new MouseEvent('mouseup', { 
+          bubbles: true, 
+          cancelable: true,
+          view: window,
+          clientX: x, 
+          clientY: y 
+        }));
+        
+        clickElement.dispatchEvent(new MouseEvent('click', { 
+          bubbles: true, 
+          cancelable: true,
+          view: window,
+          clientX: x, 
+          clientY: y 
+        }));
+        
+        // Additional wait to ensure click processed
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
       break;
-    }
 
-    case 'change': {
-      const changeElementRaw = await waitForElement(step.selectors, settings.timeout || 5000);
-      if (!changeElementRaw) {
-        throw new Error(`Element not found for change action: ${JSON.stringify(step.selectors)}`);
-      }
-      {
-        // Some apps put data-test on a wrapper; try to find the real editable element.
-        let editable = changeElementRaw;
-        const rawTag = editable.tagName?.toLowerCase();
-
-        if (rawTag !== 'input' && rawTag !== 'textarea' && !editable.isContentEditable && editable.getAttribute?.('contenteditable') !== 'true') {
-          const descendant = editable.querySelector?.('textarea, input, [contenteditable="true"], [role="textbox"]');
-          if (descendant) editable = descendant;
-        }
-
-        // Ensure visible & focused
-        editable.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 60));
-
-        // Some editors require a real click to place caret
-        if (typeof editable.click === 'function') {
-          try { editable.click(); } catch (e) {}
-          await new Promise((resolve) => setTimeout(resolve, 20));
-        }
-
-        if (typeof editable.focus === 'function') {
-          try { editable.focus({ preventScroll: true }); } catch (e) { try { editable.focus(); } catch (e2) {} }
-          await new Promise((resolve) => setTimeout(resolve, 30));
-        }
-
-        const tagName = editable.tagName?.toLowerCase();
-        const role = editable.getAttribute?.('role');
-        const isInputLike = tagName === 'input' || tagName === 'textarea';
-        const isContentEditable = editable.isContentEditable || editable.getAttribute?.('contenteditable') === 'true';
-        const isRoleTextbox = role === 'textbox';
-
-        const normalize = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
-
-        if (isInputLike) {
-          const proto = tagName === 'textarea'
-            ? window.HTMLTextAreaElement.prototype
-            : window.HTMLInputElement.prototype;
-          const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-
-          const prevValue = editable.value;
-
-          // Set value in the most framework-friendly way
-          if (nativeSetter) nativeSetter.call(editable, step.value);
-          else editable.value = step.value;
-
-          // React internal value tracker (prevents DOM-only update)
-          try {
-            const tracker = editable._valueTracker;
-            if (tracker) tracker.setValue(prevValue);
-          } catch (e) {
-            // ignore
-          }
-
-          // IMPORTANT: keep event sequence minimal to avoid breaking complex UIs
-          try {
-            editable.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-          } catch (e) {
-            editable.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          // Validate that the value actually set (prevents false-green)
-          if (normalize(editable.value) !== normalize(step.value)) {
-            throw new Error(`Failed to set input value. Expected: "${step.value}", Actual: "${editable.value}"`);
-          }
-        } else if (isContentEditable || isRoleTextbox) {
-          // Contenteditable / role=textbox editors (often React-managed):
-          // DO NOT mutate textContent/innerHTML directly — it can crash React reconciliation.
-          // Prefer native editing commands (closest to real typing).
-          let ok = false;
-          try {
-            try { editable.focus?.({ preventScroll: true }); } catch (e) { try { editable.focus?.(); } catch (e2) {} }
-            try { document.execCommand?.('selectAll', false); } catch (e) {}
-            ok = !!document.execCommand?.('insertText', false, step.value);
-          } catch (e) {
-            ok = false;
-          }
-
-          if (!ok) {
-            throw new Error('Failed to set text in contenteditable editor (insertText not supported).');
-          }
-
-          // Some apps rely on an explicit input event listener (safe: does not mutate DOM)
-          try {
-            editable.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-          } catch (e) {
-            editable.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          // Validate (normalized) to avoid false-green
-          const actualText = normalize(editable.textContent);
-          if (actualText !== normalize(step.value)) {
-            throw new Error(`Failed to set textbox text. Expected: "${step.value}", Actual: "${editable.textContent?.trim()}"`);
-          }
+    case 'change':
+      const changeElement = findElement(step.selectors);
+      if (changeElement) {
+        // Handle different element types
+        if (changeElement.value !== undefined) {
+          changeElement.value = step.value;
         } else {
-          // IMPORTANT: avoid touching DOM text of arbitrary wrappers (can crash frameworks).
-          throw new Error(`Unsupported element for change action (not input/textarea/contenteditable): <${tagName || 'unknown'}>`);
+          changeElement.textContent = step.value;
         }
+        changeElement.dispatchEvent(new Event('change', { bubbles: true }));
+        changeElement.dispatchEvent(new Event('input', { bubbles: true }));
       }
       break;
-    }
 
     case 'keyDown':
       document.dispatchEvent(new KeyboardEvent('keydown', { key: step.key }));
@@ -1365,11 +719,6 @@ async function executeStep(step, settings) {
     case 'keyUp':
       document.dispatchEvent(new KeyboardEvent('keyup', { key: step.key }));
       break;
-
-    case 'hover': {
-      // Hover steps are intentionally ignored (recording hover is disabled).
-      break;
-    }
 
     case 'waitForElement':
       const element = await waitForElement(step.selectors, settings.timeout || 5000);
@@ -1393,13 +742,12 @@ async function executeStep(step, settings) {
 
 function findElement(selectors) {
   if (!Array.isArray(selectors)) return null;
-
-  // Priority 1: XPath (most reliable for data-test attributes)
+  
+  // Priority 1: Try XPath selectors first (most reliable)
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    if (typeof selector !== 'string') continue;
-
+    
     if (selector.startsWith('xpath//')) {
       const xpath = selector.replace('xpath//', '//');
       try {
@@ -1413,93 +761,86 @@ function findElement(selectors) {
       }
     }
   }
-
-  // Priority 2: CSS selectors (fast + specific in modern apps)
+  
+  // Priority 2: Try ARIA selectors
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    if (typeof selector !== 'string') continue;
-
-    if (selector.startsWith('xpath//') || selector.startsWith('text/') || selector.startsWith('pierce/') || selector.startsWith('aria/')) {
-      continue;
-    }
-
-    try {
-      const element = document.querySelector(selector);
-      if (element) {
-        console.log('Found element using CSS:', selector);
-        return element;
-      }
-    } catch (e) {
-      console.warn('Invalid CSS selector:', selector, e);
-    }
-  }
-
-  // Priority 3: ARIA selectors (label-based only; role-only removed)
-  for (const selectorArray of selectors) {
-    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
-    const selector = selectorArray[0];
-    if (typeof selector !== 'string' || !selector.startsWith('aria/')) continue;
-
-    const ariaLabel = selector.replace('aria/', '');
-    try {
-      if (ariaLabel.trim().startsWith('[')) {
-        const el = document.querySelector(ariaLabel.trim());
-        if (el) {
-          console.log('Found element using ARIA query:', ariaLabel);
-          return el;
+    
+    if (selector.startsWith('aria/')) {
+      const ariaLabel = selector.replace('aria/', '');
+      try {
+        const element = document.querySelector(`[aria-label="${ariaLabel}"]`) || 
+                       document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
+        if (element) {
+          console.log('Found element using ARIA:', ariaLabel);
+          return element;
         }
+      } catch (e) {
+        console.warn('Invalid ARIA selector:', selector, e);
       }
-
-      const element =
-        document.querySelector(`[aria-label="${ariaLabel}"]`) ||
-        document.querySelector(`[aria-labelledby*="${ariaLabel}"]`);
-      if (element) {
-        console.log('Found element using ARIA:', ariaLabel);
-        return element;
-      }
-    } catch (e) {
-      console.warn('Invalid ARIA selector:', selector, e);
     }
   }
-
-  // Priority 4: Pierce selectors (shadow DOM)
+  
+  // Priority 3: Try CSS selectors
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    if (typeof selector !== 'string' || !selector.startsWith('pierce/')) continue;
-
-    const cssSelector = selector.replace('pierce/', '');
-    try {
-      const element = document.querySelector(cssSelector);
-      if (element) {
-        console.log('Found element using Pierce:', cssSelector);
-        return element;
+    
+    if (!selector.startsWith('xpath//') && !selector.startsWith('text/') && 
+        !selector.startsWith('pierce/') && !selector.startsWith('aria/')) {
+      try {
+        const element = document.querySelector(selector);
+        if (element) {
+          console.log('Found element using CSS:', selector);
+          return element;
+        }
+      } catch (e) {
+        console.warn('Invalid CSS selector:', selector, e);
       }
-    } catch (e) {
-      console.warn('Invalid pierce selector:', cssSelector, e);
     }
   }
-
-  // Priority 5: Text selectors (last resort)
+  
+  // Priority 4: Try Pierce selectors
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
-    if (typeof selector !== 'string' || !selector.startsWith('text/')) continue;
-
-    const text = selector.replace('text/', '');
-    console.warn('Using text selector as fallback:', text);
-
-    const clickableSelectors = 'button, a, input, [role="button"], [onclick]';
-    const elements = Array.from(document.querySelectorAll(clickableSelectors));
-    const element = elements.find(el => el.textContent?.trim() === text);
-
-    if (element) {
-      console.log('Found element using text (fallback):', text);
-      return element;
+    
+    if (selector.startsWith('pierce/')) {
+      const cssSelector = selector.replace('pierce/', '');
+      try {
+        const element = document.querySelector(cssSelector);
+        if (element) {
+          console.log('Found element using Pierce:', cssSelector);
+          return element;
+        }
+      } catch (e) {
+        console.warn('Invalid pierce selector:', cssSelector, e);
+      }
     }
   }
-
+  
+  // Priority 5: Text selectors as last resort (least reliable)
+  for (const selectorArray of selectors) {
+    if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+    const selector = selectorArray[0];
+    
+    if (selector.startsWith('text/')) {
+      const text = selector.replace('text/', '');
+      console.warn('Using text selector as fallback:', text);
+      
+      // Find clickable elements only (buttons, links, inputs)
+      const clickableSelectors = 'button, a, input, [role="button"], [onclick]';
+      const elements = Array.from(document.querySelectorAll(clickableSelectors));
+      const element = elements.find(el => el.textContent?.trim() === text);
+      
+      if (element) {
+        console.log('Found element using text (fallback):', text);
+        return element;
+      }
+    }
+  }
+  
   return null;
 }
 
