@@ -753,27 +753,39 @@ async function executeStep(step, settings) {
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
 
+        // Check if this is a modal-list-element - if so, find and click the actual input inside
+        const dataTest = clickElement.getAttribute('data-test');
+        let actualClickTarget = clickElement;
+        
+        if (dataTest && dataTest.includes('modal-list-element')) {
+          // Find checkbox or radio button inside
+          const inputElement = clickElement.querySelector('input[type="checkbox"], input[type="radio"]');
+          if (inputElement) {
+            actualClickTarget = inputElement;
+          }
+        }
+
         // Use multiple click methods for better compatibility
-        const rect = clickElement.getBoundingClientRect();
+        const rect = actualClickTarget.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
 
-        const tagName = clickElement.tagName?.toLowerCase();
+        const tagName = actualClickTarget.tagName?.toLowerCase();
         const isInput = tagName === 'input' || tagName === 'select';
-        const hasDropdown = clickElement.getAttribute('role') === 'combobox' || 
-                            clickElement.getAttribute('aria-haspopup') === 'listbox' ||
-                            clickElement.getAttribute('aria-haspopup') === 'true' ||
-                            clickElement.classList?.contains('select') ||
-                            clickElement.closest('[role="combobox"]');
+        const hasDropdown = actualClickTarget.getAttribute('role') === 'combobox' || 
+                            actualClickTarget.getAttribute('aria-haspopup') === 'listbox' ||
+                            actualClickTarget.getAttribute('aria-haspopup') === 'true' ||
+                            actualClickTarget.classList?.contains('select') ||
+                            actualClickTarget.closest('[role="combobox"]');
 
         // For input/select elements or elements with dropdowns, focus first
         if (isInput || hasDropdown) {
-          clickElement.focus();
+          actualClickTarget.focus();
           await new Promise(resolve => setTimeout(resolve, 50));
         }
 
         // Dispatch pointer events first (many modern frameworks use these for dropdowns)
-        clickElement.dispatchEvent(new PointerEvent('pointerdown', {
+        actualClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true,
           cancelable: true,
           view: window,
@@ -786,7 +798,7 @@ async function executeStep(step, settings) {
 
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        clickElement.dispatchEvent(new PointerEvent('pointerup', {
+        actualClickTarget.dispatchEvent(new PointerEvent('pointerup', {
           bubbles: true,
           cancelable: true,
           view: window,
@@ -798,7 +810,7 @@ async function executeStep(step, settings) {
         }));
 
         // Mouse events for frameworks that listen to them
-        clickElement.dispatchEvent(new MouseEvent('mousedown', {
+        actualClickTarget.dispatchEvent(new MouseEvent('mousedown', {
           bubbles: true,
           cancelable: true,
           view: window,
@@ -806,7 +818,7 @@ async function executeStep(step, settings) {
           clientY: y
         }));
 
-        clickElement.dispatchEvent(new MouseEvent('mouseup', {
+        actualClickTarget.dispatchEvent(new MouseEvent('mouseup', {
           bubbles: true,
           cancelable: true,
           view: window,
@@ -815,10 +827,10 @@ async function executeStep(step, settings) {
         }));
 
         // Try native click
-        clickElement.click();
+        actualClickTarget.click();
 
         // Also dispatch click event for frameworks
-        clickElement.dispatchEvent(new MouseEvent('click', {
+        actualClickTarget.dispatchEvent(new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
           view: window,
@@ -828,8 +840,13 @@ async function executeStep(step, settings) {
 
         // For inputs, also trigger focus event to open dropdowns
         if (isInput || hasDropdown) {
-          clickElement.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-          clickElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+          actualClickTarget.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+          actualClickTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        }
+
+        // For checkboxes/radios, also dispatch change event
+        if (tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio')) {
+          actualClickTarget.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
         // Additional wait to ensure dropdown opens
