@@ -165,7 +165,13 @@ function pickBestInteractiveFromEvent(event) {
 
   const isInteractiveComponent = (dt) => {
     if (!dt) return false;
-    return /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_/i.test(dt);
+    // Include Link_ for <a> elements with data-test
+    return /Button_|MenuItem_|Tab_|Option_|Select_|Dropdown_|CheckBox_|Radio_|Input_|TextArea_|Textbox_|ListItem_|Link_|NavItem_|SidebarItem_/i.test(dt);
+  };
+  
+  // Interactive HTML tags that should be prioritized
+  const isInteractiveTag = (tag) => {
+    return ['a', 'button', 'input', 'select', 'textarea'].includes(tag);
   };
 
   // PRIMARY STRATEGY: use the actual visual stack under the cursor (works even when event.target is retargeted)
@@ -188,8 +194,9 @@ function pickBestInteractiveFromEvent(event) {
         const tag = el.tagName?.toLowerCase();
         const dt = el.getAttribute?.('data-test');
 
+        // Prioritize interactive HTML tags (a, button, input, etc.) even without special data-test patterns
         if (dt && !containerDataTest.test(dt) && !leafTags.has(tag)) {
-          if (isInteractiveComponent(dt)) return el;
+          if (isInteractiveComponent(dt) || isInteractiveTag(tag)) return el;
           if (!firstNonContainer) firstNonContainer = el;
         }
 
@@ -349,6 +356,44 @@ function flushPendingInputEvents() {
   }
 }
 
+function getElementText(element) {
+  if (!element) return null;
+  
+  // For buttons and links, get the visible text
+  const tagName = element.tagName?.toLowerCase();
+  
+  // Get direct text content, excluding deeply nested text
+  const getDirectText = (el) => {
+    let text = '';
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent;
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const childTag = node.tagName?.toLowerCase();
+        // Include text from simple inline elements
+        if (['span', 'strong', 'em', 'b', 'i', 'small'].includes(childTag)) {
+          text += getDirectText(node);
+        }
+      }
+    }
+    return text.trim();
+  };
+  
+  let text = getDirectText(element);
+  
+  // Fallback to textContent if no direct text found (but limit length)
+  if (!text && element.textContent) {
+    text = element.textContent.trim();
+  }
+  
+  // Limit text length
+  if (text && text.length > 100) {
+    text = text.substring(0, 100) + '...';
+  }
+  
+  return text || null;
+}
+
 function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
@@ -359,6 +404,9 @@ function handleClick(event) {
   const target = findInteractiveElement(event.target, event);
   const selectors = generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
+  
+  // Get element text for better debugging and readability
+  const elementText = getElementText(target);
 
   const clickEvent = {
     type: 'click',
@@ -368,6 +416,11 @@ function handleClick(event) {
     offsetY: event.clientY - rect.top,
     url: window.location.href
   };
+  
+  // Add text if available
+  if (elementText) {
+    clickEvent.text = elementText;
+  }
 
   recordEvent(clickEvent);
 }
@@ -1029,17 +1082,29 @@ async function executeStep(step, settings) {
         return null;
       })();
 
-      // --- Auto-open dropdown if target is a MenuItem but not yet in DOM ---
+      // --- Auto-open dropdown if target is a MenuItem or Option but not yet in DOM ---
       const isMenuItem = recordedDataTest && menuItemPatterns.test(recordedDataTest);
+      const isDropdownOption = recordedDataTest && /Option_|SelectItem_|ListItem_|DropdownItem_/i.test(recordedDataTest);
       let clickElement = findElement(step.selectors);
 
-      if (!clickElement && isMenuItem) {
-        // Try to find and click a dropdown trigger to open the menu
-        const triggers = Array.from(document.querySelectorAll(
-          '[aria-haspopup="true"], [aria-haspopup="listbox"], [aria-haspopup="menu"], ' +
-          '[role="combobox"], [role="listbox"], [data-test*="Trigger"], [data-test*="Select"], ' +
-          '[data-test*="Dropdown"], button[aria-expanded]'
-        ));
+      if (!clickElement && (isMenuItem || isDropdownOption)) {
+        // Try to find and click dropdown triggers to open menus/dropdowns
+        const triggerSelectors = [
+          '[aria-haspopup="true"]',
+          '[aria-haspopup="listbox"]',
+          '[aria-haspopup="menu"]',
+          '[role="combobox"]',
+          '[role="listbox"]',
+          '[data-test*="Trigger"]',
+          '[data-test*="Select"]',
+          '[data-test*="Dropdown"]',
+          '[data-test*="Combobox"]',
+          'button[aria-expanded]',
+          '[data-test*="Input_"][data-test*="Select"]',
+          '[data-test*="FormField_"]'
+        ];
+        
+        const triggers = Array.from(document.querySelectorAll(triggerSelectors.join(', ')));
 
         for (const trigger of triggers) {
           const expanded = trigger.getAttribute('aria-expanded');
@@ -1049,11 +1114,25 @@ async function executeStep(step, settings) {
           // Click trigger to open dropdown
           try {
             trigger.scrollIntoView?.({ behavior: 'auto', block: 'center' });
-            await new Promise(r => setTimeout(r, 50));
-            trigger.click();
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 100));
+            
+            // Try synthetic click first
+            trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            await new Promise(r => setTimeout(r, 30));
+            trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            
+            // Wait for dropdown to appear
+            await new Promise(r => setTimeout(r, 300));
 
             // Check if our target appeared
+            clickElement = findElement(step.selectors);
+            if (clickElement) break;
+            
+            // Also try native click if synthetic didn't work
+            trigger.click();
+            await new Promise(r => setTimeout(r, 300));
+            
             clickElement = findElement(step.selectors);
             if (clickElement) break;
           } catch (e) {
@@ -1175,7 +1254,10 @@ async function executeStep(step, settings) {
 
     case 'change': {
       const changeElementRaw = await waitForElement(step.selectors, settings.timeout || 5000);
-      if (changeElementRaw) {
+      if (!changeElementRaw) {
+        throw new Error(`Element not found for change action: ${JSON.stringify(step.selectors)}`);
+      }
+      {
         // Some apps put data-test on a wrapper; try to find the real editable element.
         let editable = changeElementRaw;
         const rawTag = editable.tagName?.toLowerCase();
