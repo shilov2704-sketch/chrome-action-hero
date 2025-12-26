@@ -1291,29 +1291,18 @@ async function executeStep(step, settings) {
         const normalize = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
         if (isInputLike) {
-          const proto = tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          const proto = tagName === 'textarea'
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
           const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 
           const prevValue = editable.value;
 
-          // beforeinput -> input (React listens here) -> change
-          try {
-            editable.dispatchEvent(
-              new InputEvent('beforeinput', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertReplacementText',
-                data: step.value
-              })
-            );
-          } catch (e) {
-            // ignore
-          }
-
+          // Set value in the most framework-friendly way
           if (nativeSetter) nativeSetter.call(editable, step.value);
           else editable.value = step.value;
 
-          // React internal value tracker (prevents false-green where DOM value changes but React state doesn't)
+          // React internal value tracker (prevents DOM-only update)
           try {
             const tracker = editable._valueTracker;
             if (tracker) tracker.setValue(prevValue);
@@ -1321,86 +1310,40 @@ async function executeStep(step, settings) {
             // ignore
           }
 
-          // Fire both InputEvent and plain Event for broad compatibility
+          // IMPORTANT: keep event sequence minimal to avoid breaking complex UIs
           try {
-            editable.dispatchEvent(
-              new InputEvent('input', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertText',
-                data: step.value,
-                composed: true
-              })
-            );
+            editable.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
           } catch (e) {
             editable.dispatchEvent(new Event('input', { bubbles: true }));
           }
-
-          editable.dispatchEvent(new Event('input', { bubbles: true }));
-          editable.dispatchEvent(new Event('change', { bubbles: true }));
-
-          await new Promise((resolve) => setTimeout(resolve, 30));
-          editable.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-          editable.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
 
           // Validate that the value actually set (prevents false-green)
           if (normalize(editable.value) !== normalize(step.value)) {
             throw new Error(`Failed to set input value. Expected: "${step.value}", Actual: "${editable.value}"`);
           }
         } else if (isContentEditable || isRoleTextbox) {
-          // Contenteditable / role=textbox editors often require real selection + insertText.
-          const selectAll = () => {
-            try {
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(editable);
-              sel.removeAllRanges();
-              sel.addRange(range);
-            } catch (e) {
-              // ignore
-            }
-          };
-
+          // Contenteditable / role=textbox editors (often React-managed):
+          // DO NOT mutate textContent/innerHTML directly — it can crash React reconciliation.
+          // Prefer native editing commands (closest to real typing).
+          let ok = false;
           try {
-            editable.dispatchEvent(
-              new InputEvent('beforeinput', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertReplacementText',
-                data: step.value
-              })
-            );
+            try { editable.focus?.({ preventScroll: true }); } catch (e) { try { editable.focus?.(); } catch (e2) {} }
+            try { document.execCommand?.('selectAll', false); } catch (e) {}
+            ok = !!document.execCommand?.('insertText', false, step.value);
           } catch (e) {
-            // ignore
+            ok = false;
           }
 
-          selectAll();
-          let inserted = false;
-          try {
-            inserted = document.execCommand && document.execCommand('insertText', false, step.value);
-          } catch (e) {
-            inserted = false;
-          }
-          if (!inserted) {
-            editable.textContent = step.value;
+          if (!ok) {
+            throw new Error('Failed to set text in contenteditable editor (insertText not supported).');
           }
 
+          // Some apps rely on an explicit input event listener (safe: does not mutate DOM)
           try {
-            editable.dispatchEvent(
-              new InputEvent('input', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertText',
-                data: step.value,
-                composed: true
-              })
-            );
+            editable.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
           } catch (e) {
             editable.dispatchEvent(new Event('input', { bubbles: true }));
           }
-
-          editable.dispatchEvent(new Event('input', { bubbles: true }));
-          editable.dispatchEvent(new Event('change', { bubbles: true }));
 
           // Validate (normalized) to avoid false-green
           const actualText = normalize(editable.textContent);
@@ -1408,10 +1351,8 @@ async function executeStep(step, settings) {
             throw new Error(`Failed to set textbox text. Expected: "${step.value}", Actual: "${editable.textContent?.trim()}"`);
           }
         } else {
-          // Fallback (rare): just set textContent
-          editable.textContent = step.value;
-          editable.dispatchEvent(new Event('input', { bubbles: true }));
-          editable.dispatchEvent(new Event('change', { bubbles: true }));
+          // IMPORTANT: avoid touching DOM text of arbitrary wrappers (can crash frameworks).
+          throw new Error(`Unsupported element for change action (not input/textarea/contenteditable): <${tagName || 'unknown'}>`);
         }
       }
       break;
