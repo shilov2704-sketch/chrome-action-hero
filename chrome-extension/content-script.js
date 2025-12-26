@@ -64,9 +64,30 @@ function findInteractiveElement(element) {
   // Elements that are non-interactive leaves - always go up to find parent
   const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'p', 'strong', 'em', 'b', 'small'];
   
+  // Priority interactive tags - if we're inside one of these, use it
+  const priorityInteractiveTags = ['a', 'button'];
+  
   let current = element;
   
-  // Step 1: If we're on a leaf element, go up until we find a non-leaf with data-test
+  // Step 1: Check if we're inside a priority interactive element (like <a> or <button>)
+  // If so, use that element instead
+  let priorityElement = null;
+  let checkElement = element;
+  while (checkElement && checkElement !== document.body) {
+    const tagName = checkElement.tagName?.toLowerCase();
+    if (priorityInteractiveTags.includes(tagName) && checkElement.getAttribute('data-test')) {
+      priorityElement = checkElement;
+      break;
+    }
+    checkElement = checkElement.parentElement;
+  }
+  
+  // If we found a priority interactive element, use it
+  if (priorityElement) {
+    return priorityElement;
+  }
+  
+  // Step 2: If we're on a leaf element, go up until we find a non-leaf with data-test
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
     
@@ -79,12 +100,12 @@ function findInteractiveElement(element) {
     break;
   }
   
-  // Step 2: If current element has data-test, use it directly
+  // Step 3: If current element has data-test, use it directly
   if (current && current.getAttribute('data-test')) {
     return current;
   }
   
-  // Step 3: If no data-test, look up for the closest element with data-test
+  // Step 4: If no data-test, look up for the closest element with data-test
   while (current && current !== document.body) {
     if (current.getAttribute('data-test')) {
       return current;
