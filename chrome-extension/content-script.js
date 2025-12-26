@@ -753,12 +753,13 @@ async function executeStep(step, settings) {
         clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // Use recorded click offsets when possible (important for checkbox/radio inside list rows)
+        // Calculate click coordinates
         const containerRect = clickElement.getBoundingClientRect();
         const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
-        const clickX = hasOffsets ? containerRect.left + step.offsetX : containerRect.left + containerRect.width / 2;
-        const clickY = hasOffsets ? containerRect.top + step.offsetY : containerRect.top + containerRect.height / 2;
+        let clickX = hasOffsets ? containerRect.left + step.offsetX : containerRect.left + containerRect.width / 2;
+        let clickY = hasOffsets ? containerRect.top + step.offsetY : containerRect.top + containerRect.height / 2;
 
+        // Try to find the actual interactive element at the click point
         let pointEl = null;
         try {
           pointEl = document.elementFromPoint(clickX, clickY);
@@ -766,6 +767,7 @@ async function executeStep(step, settings) {
           // ignore
         }
 
+        // Resolve to the best click target (checkbox/radio/button inside containers)
         const resolveReplayClickTarget = (container, atPoint) => {
           const isWithin = atPoint && container.contains(atPoint);
           const start = isWithin ? atPoint : container;
@@ -807,102 +809,110 @@ async function executeStep(step, settings) {
 
         const actualClickTarget = resolveReplayClickTarget(clickElement, pointEl);
 
+        // If we resolved to a different element, recalculate coordinates to its center
+        if (actualClickTarget !== clickElement && actualClickTarget !== pointEl) {
+          const targetRect = actualClickTarget.getBoundingClientRect();
+          clickX = targetRect.left + targetRect.width / 2;
+          clickY = targetRect.top + targetRect.height / 2;
+        }
+
         try {
           actualClickTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise(resolve => setTimeout(resolve, 100));
+          // Recalculate after scroll
+          const newRect = actualClickTarget.getBoundingClientRect();
+          clickX = newRect.left + newRect.width / 2;
+          clickY = newRect.top + newRect.height / 2;
         } catch (e) {
           // ignore
         }
 
-        const tagName = actualClickTarget.tagName?.toLowerCase();
-        const role = actualClickTarget.getAttribute?.('role');
-        const isInput = tagName === 'input' || tagName === 'select' || role === 'checkbox' || role === 'radio';
-        const hasDropdown = actualClickTarget.getAttribute('role') === 'combobox' || 
-                            actualClickTarget.getAttribute('aria-haspopup') === 'listbox' ||
-                            actualClickTarget.getAttribute('aria-haspopup') === 'true' ||
-                            actualClickTarget.classList?.contains('select') ||
-                            actualClickTarget.closest('[role="combobox"]');
-
-        if (isInput || hasDropdown) {
-          actualClickTarget.focus?.();
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-
-        // Remember checked state for real inputs (some UIs ignore synthetic clicks unless checked changes)
-        const isCheckableInput = tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio');
-        const beforeChecked = isCheckableInput ? actualClickTarget.checked : undefined;
-
-        // Dispatch pointer/mouse events with the original click coordinates
-        actualClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: clickX,
-          clientY: clickY,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true
-        }));
-
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        actualClickTarget.dispatchEvent(new PointerEvent('pointerup', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: clickX,
-          clientY: clickY,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true
-        }));
-
-        actualClickTarget.dispatchEvent(new MouseEvent('mousedown', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: clickX,
-          clientY: clickY
-        }));
-
-        actualClickTarget.dispatchEvent(new MouseEvent('mouseup', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: clickX,
-          clientY: clickY
-        }));
-
-        // Try native click
-        actualClickTarget.click();
-
-        // Also dispatch click event for frameworks
-        actualClickTarget.dispatchEvent(new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: clickX,
-          clientY: clickY
-        }));
-
-        // For checkboxes/radios, ensure change/input events fire and checked actually flips
-        if (isCheckableInput) {
-          const afterChecked = actualClickTarget.checked;
-          if (afterChecked === beforeChecked) {
-            const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
-            const next = actualClickTarget.type === 'radio' ? true : !beforeChecked;
-            desc?.set?.call(actualClickTarget, next);
-          }
-
+        // Use Chrome Debugger API for real isTrusted clicks
+        const tabId = settings?.tabId;
+        console.log('Dispatching debugger click at', clickX, clickY, 'on', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test') || '', 'tabId:', tabId);
+        
+        let clickSucceeded = false;
+        
+        if (tabId) {
           try {
-            actualClickTarget.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+            const response = await new Promise((resolve) => {
+              chrome.runtime.sendMessage({
+                action: 'debuggerClick',
+                tabId: tabId,
+                x: clickX,
+                y: clickY,
+                clickCount: 1
+              }, resolve);
+            });
+            
+            if (response && response.success) {
+              clickSucceeded = true;
+              console.log('Debugger click succeeded');
+            } else {
+              console.warn('Debugger click failed:', response?.error);
+            }
           } catch (e) {
-            actualClickTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            console.warn('Debugger click error:', e);
           }
-          actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+        }
+        
+        // Fallback to synthetic click if debugger click failed or tabId not available
+        if (!clickSucceeded) {
+          console.log('Using synthetic click fallback');
+          
+          // Focus first for inputs
+          const tagName = actualClickTarget.tagName?.toLowerCase();
+          const role = actualClickTarget.getAttribute?.('role');
+          const isInput = tagName === 'input' || tagName === 'select' || role === 'checkbox' || role === 'radio';
+          
+          if (isInput) {
+            actualClickTarget.focus?.();
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          
+          // Dispatch synthetic events
+          const rect = actualClickTarget.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          
+          actualClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true, cancelable: true, view: window,
+            clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', isPrimary: true
+          }));
+          
+          await new Promise(resolve => setTimeout(resolve, 10));
+          
+          actualClickTarget.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true, cancelable: true, view: window,
+            clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', isPrimary: true
+          }));
+          
+          actualClickTarget.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
+          }));
+          
+          actualClickTarget.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
+          }));
+          
+          actualClickTarget.click();
+          
+          actualClickTarget.dispatchEvent(new MouseEvent('click', {
+            bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
+          }));
+          
+          // For checkboxes/radios, ensure change event fires
+          if (tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio')) {
+            try {
+              actualClickTarget.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+            } catch (e) {
+              actualClickTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            }
+            actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+          }
         }
 
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       break;
     }

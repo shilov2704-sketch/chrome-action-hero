@@ -771,11 +771,30 @@ async function replayRecording(speed) {
   try {
     const tabId = chrome.devtools.inspectedWindow.tabId;
     
+    // Attach debugger before starting replay for real clicks
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: 'attachDebugger',
+          tabId: tabId
+        }, (response) => {
+          if (response && response.success) {
+            resolve();
+          } else {
+            console.warn('Could not attach debugger:', response?.error);
+            resolve(); // Continue anyway, will fall back to synthetic clicks
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Debugger attach failed:', e);
+    }
+    
     await chrome.tabs.sendMessage(tabId, {
       action: 'replayRecording',
       recording: state.currentRecording,
       speed: speed,
-      settings: state.replaySettings
+      settings: { ...state.replaySettings, tabId: tabId }
     });
     
     console.log('Replay started with speed:', speed);
