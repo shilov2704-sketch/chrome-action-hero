@@ -710,8 +710,53 @@ function setElementValue(el, value) {
     return;
   }
 
+  // Handle contenteditable / Draft.js / rich text editors
   if (el.isContentEditable || el.getAttribute?.('role') === 'textbox') {
-    el.textContent = value;
+    // Focus the element first
+    el.focus();
+    
+    // For Draft.js editors (aria-label='rdw-editor'), we need special handling
+    const isDraftJs = el.getAttribute?.('aria-label') === 'rdw-editor' || 
+                      el.classList?.contains('public-DraftEditor-content') ||
+                      el.closest?.('[class*="DraftEditor"]');
+    
+    if (isDraftJs) {
+      // Draft.js requires simulating actual text input
+      // First, select all existing content
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Delete existing content
+      document.execCommand('delete', false, null);
+      
+      // Insert new text using execCommand (works with Draft.js)
+      document.execCommand('insertText', false, value);
+      
+      // Dispatch input event for Draft.js to pick up
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: value
+      }));
+    } else {
+      // Generic contenteditable handling
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Try execCommand first (more compatible with rich editors)
+      const success = document.execCommand('insertText', false, value);
+      if (!success) {
+        // Fallback to textContent
+        el.textContent = value;
+      }
+    }
     return;
   }
 
