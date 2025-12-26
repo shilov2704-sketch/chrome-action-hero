@@ -747,10 +747,46 @@ async function executeStep(step, settings) {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
 
-        // Try native click first
-        clickElement.click();
+        const tagName = clickElement.tagName?.toLowerCase();
+        const isInput = tagName === 'input' || tagName === 'select';
+        const hasDropdown = clickElement.getAttribute('role') === 'combobox' || 
+                            clickElement.getAttribute('aria-haspopup') === 'listbox' ||
+                            clickElement.getAttribute('aria-haspopup') === 'true' ||
+                            clickElement.classList?.contains('select') ||
+                            clickElement.closest('[role="combobox"]');
 
-        // Also dispatch mouse events for frameworks that listen to them
+        // For input/select elements or elements with dropdowns, focus first
+        if (isInput || hasDropdown) {
+          clickElement.focus();
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Dispatch pointer events first (many modern frameworks use these for dropdowns)
+        clickElement.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true
+        }));
+
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        clickElement.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true
+        }));
+
+        // Mouse events for frameworks that listen to them
         clickElement.dispatchEvent(new MouseEvent('mousedown', {
           bubbles: true,
           cancelable: true,
@@ -767,6 +803,10 @@ async function executeStep(step, settings) {
           clientY: y
         }));
 
+        // Try native click
+        clickElement.click();
+
+        // Also dispatch click event for frameworks
         clickElement.dispatchEvent(new MouseEvent('click', {
           bubbles: true,
           cancelable: true,
@@ -775,8 +815,14 @@ async function executeStep(step, settings) {
           clientY: y
         }));
 
-        // Additional wait to ensure click processed
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // For inputs, also trigger focus event to open dropdowns
+        if (isInput || hasDropdown) {
+          clickElement.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+          clickElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        }
+
+        // Additional wait to ensure dropdown opens
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
       break;
 
