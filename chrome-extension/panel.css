@@ -275,23 +275,36 @@ body {
   flex: 1;
 }
 
-.delete-recording-btn {
+.recording-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.recording-card-actions button {
   background: transparent;
   border: none;
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   padding: 4px;
   opacity: 0;
   transition: opacity 0.2s;
-  color: #ea4335;
 }
 
-.recording-card:hover .delete-recording-btn {
+.recording-card:hover .recording-card-actions button {
   opacity: 0.6;
 }
 
-.delete-recording-btn:hover {
+.recording-card-actions button:hover {
   opacity: 1 !important;
+}
+
+.delete-recording-btn {
+  color: #ea4335;
+}
+
+.move-to-folder-btn,
+.move-to-root-btn {
+  color: var(--accent-primary);
 }
 
 .recording-card-meta {
@@ -299,6 +312,89 @@ body {
   gap: 16px;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+/* Folder Cards */
+.folder-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.folder-card:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.folder-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.folder-icon {
+  font-size: 20px;
+}
+
+.folder-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.delete-folder-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: #ea4335;
+}
+
+.folder-card:hover .delete-folder-btn {
+  opacity: 0.6;
+}
+
+.delete-folder-btn:hover {
+  opacity: 1 !important;
+}
+
+.folder-card-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding-left: 30px;
+}
+
+/* Folder Header (inside folder view) */
+.folder-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.folder-title-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folder-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 /* Form */
