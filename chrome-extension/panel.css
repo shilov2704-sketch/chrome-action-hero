@@ -330,6 +330,11 @@ body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
+.folder-card.selected {
+  border-color: var(--accent-primary);
+  background: rgba(26, 115, 232, 0.1);
+}
+
 .folder-card-header {
   display: flex;
   align-items: center;
@@ -346,6 +351,31 @@ body {
   font-weight: 500;
   color: var(--text-primary);
   flex: 1;
+}
+
+.play-folder-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: var(--accent-primary);
+}
+
+.folder-card:hover .play-folder-btn {
+  opacity: 0.8;
+}
+
+.play-folder-btn:hover {
+  opacity: 1 !important;
+}
+
+.play-folder-btn.disabled,
+.play-folder-btn:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed;
 }
 
 .delete-folder-btn {
@@ -372,7 +402,7 @@ body {
   gap: 16px;
   font-size: 11px;
   color: var(--text-secondary);
-  padding-left: 30px;
+  padding-left: 54px;
 }
 
 /* Folder Header (inside folder view) */
@@ -902,4 +932,106 @@ body {
 
 .btn-save-xpath:hover {
   background: #2d9249;
+}
+
+/* Bulk Actions Bar */
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--accent-primary);
+  color: white;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bulk-actions-bar .btn-secondary {
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border-color: rgba(255,255,255,0.3);
+}
+
+.bulk-actions-bar .btn-secondary:hover {
+  background: rgba(255,255,255,0.3);
+  border-color: white;
+}
+
+.bulk-actions-bar .btn-danger {
+  background: #ea4335;
+}
+
+.bulk-actions-bar .btn-ghost {
+  color: white;
+}
+
+.bulk-actions-bar .btn-ghost:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.bulk-count {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Bulk Checkboxes */
+.bulk-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.recording-card.selected,
+.folder-card.selected {
+  border-color: var(--accent-primary);
+  background: rgba(26, 115, 232, 0.08);
+}
+
+/* Import Dropdown */
+.import-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.import-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 100;
+  min-width: 150px;
+}
+
+.import-dropdown-menu.show {
+  display: block;
+}
+
+.import-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.import-option:hover {
+  background: var(--bg-hover);
+}
+
+.import-option:first-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.import-option:last-child {
+  border-radius: 0 0 4px 4px;
 }

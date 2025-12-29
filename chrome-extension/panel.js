@@ -14,7 +14,11 @@ const state = {
     throttling: 'none',
     timeout: 5000
   },
-  theme: 'light'
+  theme: 'light',
+  selectedItems: [], // {type: 'recording'|'folder', id: number}
+  isPlayingFolder: false,
+  folderPlayQueue: [],
+  currentFolderPlayIndex: 0
 };
 
 // Initialize
@@ -67,12 +71,35 @@ function initializeEventListeners() {
     renderRecordingsList();
   });
 
-  // Import recording
-  document.getElementById('importRecordingBtn').addEventListener('click', () => {
+  // Import dropdown
+  document.getElementById('importRecordingBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dropdown = document.getElementById('importDropdownMenu');
+    dropdown.classList.toggle('show');
+  });
+  
+  document.getElementById('importRecordingOption').addEventListener('click', () => {
+    document.getElementById('importDropdownMenu').classList.remove('show');
     document.getElementById('importFileInput').click();
+  });
+  
+  document.getElementById('importFolderOption').addEventListener('click', () => {
+    document.getElementById('importDropdownMenu').classList.remove('show');
+    document.getElementById('importFolderInput').click();
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', () => {
+    document.getElementById('importDropdownMenu').classList.remove('show');
   });
 
   document.getElementById('importFileInput').addEventListener('change', handleImportFiles);
+  document.getElementById('importFolderInput').addEventListener('change', handleImportFolder);
+  
+  // Bulk actions
+  document.getElementById('bulkExportBtn').addEventListener('click', handleBulkExport);
+  document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
+  document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
 
   // Rename recording
   document.getElementById('renameRecordingBtn').addEventListener('click', renameCurrentRecording);
@@ -500,11 +527,17 @@ function renderRecordingsList() {
   // Render folders
   html += displayFolders.map(folder => {
     const recordingsInFolder = state.recordings.filter(r => r.folderId === folder.id);
+    const isSelected = state.selectedItems.some(s => s.type === 'folder' && s.id === folder.id);
     return `
-      <div class="folder-card" data-folder-id="${folder.id}">
+      <div class="folder-card ${isSelected ? 'selected' : ''}" data-folder-id="${folder.id}">
         <div class="folder-card-header">
+          <input type="checkbox" class="bulk-checkbox folder-checkbox" data-folder-id="${folder.id}" ${isSelected ? 'checked' : ''}>
           <div class="folder-icon">📁</div>
           <div class="folder-card-title">${folder.name}</div>
+          <button class="play-folder-btn ${recordingsInFolder.length === 0 ? 'disabled' : ''}" 
+                  data-folder-id="${folder.id}" 
+                  title="Воспроизвести все записи"
+                  ${recordingsInFolder.length === 0 ? 'disabled' : ''}>▶️</button>
           <button class="delete-folder-btn" data-folder-id="${folder.id}" title="Удалить папку">🗑</button>
         </div>
         <div class="folder-card-meta">
@@ -515,21 +548,25 @@ function renderRecordingsList() {
   }).join('');
 
   // Render recordings
-  html += displayRecordings.map(recording => `
-    <div class="recording-card" data-id="${recording.id}">
-      <div class="recording-card-header">
-        <div class="recording-card-title">${recording.title}</div>
-        <div class="recording-card-actions">
-          ${state.currentFolder ? `<button class="move-to-root-btn" data-id="${recording.id}" title="Переместить в общий список">📤</button>` : `<button class="move-to-folder-btn" data-id="${recording.id}" title="Переместить в папку">📁</button>`}
-          <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
+  html += displayRecordings.map(recording => {
+    const isSelected = state.selectedItems.some(s => s.type === 'recording' && s.id === recording.id);
+    return `
+      <div class="recording-card ${isSelected ? 'selected' : ''}" data-id="${recording.id}">
+        <div class="recording-card-header">
+          <input type="checkbox" class="bulk-checkbox recording-checkbox" data-id="${recording.id}" ${isSelected ? 'checked' : ''}>
+          <div class="recording-card-title">${recording.title}</div>
+          <div class="recording-card-actions">
+            ${state.currentFolder ? `<button class="move-to-root-btn" data-id="${recording.id}" title="Переместить в общий список">📤</button>` : `<button class="move-to-folder-btn" data-id="${recording.id}" title="Переместить в папку">📁</button>`}
+            <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
+          </div>
+        </div>
+        <div class="recording-card-meta">
+          <span>📝 ${recording.steps.length} шагов</span>
+          <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
       </div>
-      <div class="recording-card-meta">
-        <span>📝 ${recording.steps.length} шагов</span>
-        <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
   
   if (state.currentFolder && displayRecordings.length === 0) {
     html += `
@@ -543,13 +580,46 @@ function renderRecordingsList() {
   
   container.innerHTML = html;
 
+  // Add checkbox handlers
+  container.querySelectorAll('.bulk-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    checkbox.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const isFolder = e.target.classList.contains('folder-checkbox');
+      const id = parseInt(isFolder ? e.target.dataset.folderId : e.target.dataset.id);
+      const type = isFolder ? 'folder' : 'recording';
+      
+      if (e.target.checked) {
+        state.selectedItems.push({ type, id });
+      } else {
+        state.selectedItems = state.selectedItems.filter(s => !(s.type === type && s.id === id));
+      }
+      
+      updateBulkActionsBar();
+      renderRecordingsList();
+    });
+  });
+
   // Add folder click handlers
   container.querySelectorAll('.folder-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-folder-btn')) {
+      if (!e.target.classList.contains('delete-folder-btn') && 
+          !e.target.classList.contains('bulk-checkbox') &&
+          !e.target.classList.contains('play-folder-btn')) {
         const folderId = parseInt(card.dataset.folderId);
         openFolder(folderId);
       }
+    });
+  });
+  
+  // Add play folder handlers
+  container.querySelectorAll('.play-folder-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const folderId = parseInt(btn.dataset.folderId);
+      await playFolder(folderId);
     });
   });
   
@@ -582,7 +652,8 @@ function renderRecordingsList() {
     card.addEventListener('click', (e) => {
       if (!e.target.classList.contains('delete-recording-btn') && 
           !e.target.classList.contains('move-to-folder-btn') &&
-          !e.target.classList.contains('move-to-root-btn')) {
+          !e.target.classList.contains('move-to-root-btn') &&
+          !e.target.classList.contains('bulk-checkbox')) {
         const id = parseInt(card.dataset.id);
         openRecording(id);
       }
@@ -1367,3 +1438,255 @@ async function moveRecordingToRoot(recordingId) {
     renderRecordingsList();
   }
 }
+
+// Bulk Actions
+function updateBulkActionsBar() {
+  const bar = document.getElementById('bulkActionsBar');
+  const count = document.getElementById('bulkCount');
+  
+  if (state.selectedItems.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = `${state.selectedItems.length} выбрано`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearSelection() {
+  state.selectedItems = [];
+  updateBulkActionsBar();
+  renderRecordingsList();
+}
+
+async function handleBulkExport() {
+  if (state.selectedItems.length === 0) return;
+  
+  const selectedFolders = state.selectedItems.filter(s => s.type === 'folder');
+  const selectedRecordings = state.selectedItems.filter(s => s.type === 'recording');
+  
+  // Export folders as zip
+  for (const item of selectedFolders) {
+    const folder = state.folders.find(f => f.id === item.id);
+    if (!folder) continue;
+    
+    const recordingsInFolder = state.recordings.filter(r => r.folderId === folder.id);
+    if (recordingsInFolder.length === 0) continue;
+    
+    await exportFolderAsZip(folder, recordingsInFolder);
+  }
+  
+  // Export individual recordings as JSON
+  for (const item of selectedRecordings) {
+    const recording = state.recordings.find(r => r.id === item.id);
+    if (!recording) continue;
+    
+    const exportData = prepareRecordingForExport(recording);
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${recording.title}.json`;
+    a.click();
+    
+    URL.revokeObjectURL(url);
+  }
+  
+  clearSelection();
+}
+
+async function exportFolderAsZip(folder, recordings) {
+  // Create zip file
+  const zip = new JSZip();
+  
+  for (const recording of recordings) {
+    const exportData = prepareRecordingForExport(recording);
+    const dataStr = JSON.stringify(exportData, null, 2);
+    zip.file(`${recording.title}.json`, dataStr);
+  }
+  
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${folder.name}.zip`;
+  a.click();
+  
+  URL.revokeObjectURL(url);
+}
+
+async function handleBulkDelete() {
+  if (state.selectedItems.length === 0) return;
+  
+  const hasFolders = state.selectedItems.some(s => s.type === 'folder');
+  const foldersWithRecordings = state.selectedItems
+    .filter(s => s.type === 'folder')
+    .some(s => state.recordings.some(r => r.folderId === s.id));
+  
+  let confirmMessage = 'Вы уверены, что хотите удалить выбранные элементы?';
+  if (foldersWithRecordings) {
+    confirmMessage = 'При удалении папки будут удалены все записи, которые в нее добавлены. Вы уверены?';
+  }
+  
+  if (!confirm(confirmMessage)) return;
+  
+  // Delete selected folders and their recordings
+  for (const item of state.selectedItems.filter(s => s.type === 'folder')) {
+    state.recordings = state.recordings.filter(r => r.folderId !== item.id);
+    state.folders = state.folders.filter(f => f.id !== item.id);
+  }
+  
+  // Delete selected recordings
+  for (const item of state.selectedItems.filter(s => s.type === 'recording')) {
+    state.recordings = state.recordings.filter(r => r.id !== item.id);
+  }
+  
+  await saveRecordings();
+  await saveFolders();
+  clearSelection();
+}
+
+// Import folder from ZIP
+async function handleImportFolder(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const folderName = file.name.replace('.zip', '');
+    
+    // Create new folder
+    const folder = {
+      id: Date.now(),
+      name: folderName,
+      createdAt: new Date().toISOString()
+    };
+    
+    state.folders.push(folder);
+    
+    let importedCount = 0;
+    
+    for (const [filename, zipEntry] of Object.entries(zip.files)) {
+      if (zipEntry.dir || !filename.endsWith('.json')) continue;
+      
+      try {
+        const content = await zipEntry.async('string');
+        const recording = JSON.parse(content);
+        
+        if (!recording.title || !recording.steps || !Array.isArray(recording.steps)) {
+          continue;
+        }
+        
+        // Merge checkSteps back into steps if present
+        if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+          recording.steps = [...recording.steps, ...recording.checkSteps];
+          delete recording.checkSteps;
+        }
+        
+        recording.id = Date.now() + importedCount;
+        recording.folderId = folder.id;
+        recording.createdAt = recording.createdAt || new Date().toISOString();
+        
+        state.recordings.push(recording);
+        importedCount++;
+      } catch (err) {
+        console.error('Error importing file from ZIP:', filename, err);
+      }
+    }
+    
+    await saveRecordings();
+    await saveFolders();
+    renderRecordingsList();
+    
+    alert(`Папка "${folderName}" импортирована. Записей: ${importedCount}`);
+  } catch (err) {
+    console.error('Error importing folder:', err);
+    alert('Ошибка при импорте ZIP архива');
+  }
+  
+  event.target.value = '';
+}
+
+// Play all recordings in folder
+async function playFolder(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (!folder) return;
+  
+  const recordings = state.recordings.filter(r => r.folderId === folderId);
+  if (recordings.length === 0) return;
+  
+  state.isPlayingFolder = true;
+  state.folderPlayQueue = recordings;
+  state.currentFolderPlayIndex = 0;
+  
+  alert(`Начинается воспроизведение ${recordings.length} записей папки "${folder.name}"`);
+  
+  await playNextInFolder();
+}
+
+async function playNextInFolder() {
+  if (!state.isPlayingFolder || state.currentFolderPlayIndex >= state.folderPlayQueue.length) {
+    state.isPlayingFolder = false;
+    state.folderPlayQueue = [];
+    state.currentFolderPlayIndex = 0;
+    alert('Воспроизведение папки завершено');
+    return;
+  }
+  
+  const recording = state.folderPlayQueue[state.currentFolderPlayIndex];
+  state.currentRecording = recording;
+  state.currentFolderPlayIndex++;
+  
+  console.log(`Playing recording ${state.currentFolderPlayIndex}/${state.folderPlayQueue.length}: ${recording.title}`);
+  
+  try {
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    
+    // Attach debugger
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: 'attachDebugger',
+          tabId: tabId
+        }, (response) => {
+          resolve();
+        });
+      });
+    } catch (e) {
+      console.warn('Debugger attach failed:', e);
+    }
+    
+    // Set up listener for replay completion
+    const replayCompletedListener = (message) => {
+      if (message.action === 'replayCompleted' || message.action === 'replayStopped') {
+        chrome.runtime.onMessage.removeListener(replayCompletedListener);
+        // Wait a bit before playing next
+        setTimeout(() => {
+          playNextInFolder();
+        }, 1000);
+      }
+    };
+    
+    chrome.runtime.onMessage.addListener(replayCompletedListener);
+    
+    await chrome.tabs.sendMessage(tabId, {
+      action: 'replayRecording',
+      recording: recording,
+      speed: 'normal',
+      settings: { ...state.replaySettings, tabId: tabId }
+    });
+  } catch (error) {
+    console.error('Error replaying recording:', error);
+    // Try to continue with next recording
+    setTimeout(() => {
+      playNextInFolder();
+    }, 1000);
+  }
+}
+
+// Load JSZip library
+const script = document.createElement('script');
+script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+document.head.appendChild(script);
