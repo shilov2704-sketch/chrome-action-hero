@@ -46,6 +46,9 @@
       <!-- Bulk Actions Bar -->
       <div class="bulk-actions-bar" id="bulkActionsBar" style="display: none;">
         <span class="bulk-count" id="bulkCount">0 выбрано</span>
+        <button class="btn btn-secondary" id="bulkSelectAllBtn">
+          <span class="icon">☑️</span> Выбрать все
+        </button>
         <button class="btn btn-secondary" id="bulkExportBtn">
           <span class="icon">📤</span> Экспорт
         </button>
@@ -53,6 +56,13 @@
           <span class="icon">🗑</span> Удалить
         </button>
         <button class="btn btn-ghost" id="bulkCancelBtn">Отмена</button>
+      </div>
+      
+      <!-- Folder Playback Notification -->
+      <div class="folder-playback-bar" id="folderPlaybackBar" style="display: none;">
+        <span class="folder-playback-icon">▶️</span>
+        <span class="folder-playback-text" id="folderPlaybackText">Воспроизведение...</span>
+        <span class="folder-playback-progress" id="folderPlaybackProgress">0/0</span>
       </div>
 
       <div class="recordings-list" id="recordingsList">

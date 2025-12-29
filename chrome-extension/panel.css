@@ -979,12 +979,54 @@ body {
   height: 16px;
   cursor: pointer;
   flex-shrink: 0;
+  margin-right: 8px;
 }
 
 .recording-card.selected,
 .folder-card.selected {
   border-color: var(--accent-primary);
   background: rgba(26, 115, 232, 0.08);
+}
+
+/* Recording playback results */
+.recording-card.play-success {
+  border-color: var(--success);
+  background: rgba(52, 168, 83, 0.1);
+}
+
+.recording-card.play-error {
+  border-color: var(--danger);
+  background: rgba(234, 67, 53, 0.1);
+}
+
+/* Folder Playback Bar */
+.folder-playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--success);
+  color: white;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.folder-playback-icon {
+  font-size: 16px;
+  animation: pulse 1.5s infinite;
+}
+
+.folder-playback-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.folder-playback-progress {
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(255,255,255,0.2);
+  padding: 4px 10px;
+  border-radius: 12px;
 }
 
 /* Import Dropdown */
