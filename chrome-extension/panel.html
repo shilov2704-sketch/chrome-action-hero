@@ -27,6 +27,9 @@
             <span class="icon">📥</span> Импорт
           </button>
           <input type="file" id="importFileInput" accept=".json" style="display: none;" multiple>
+          <button id="createFolderBtn" class="btn btn-secondary">
+            <span class="icon">📁</span> Создать папку
+          </button>
           <button id="createRecordingBtn" class="btn btn-primary">
             <span class="icon">➕</span> Создать запись
           </button>
@@ -59,7 +62,27 @@
 
         <div class="form-group">
           <label for="suiteName">Название TestSuite</label>
-          <input type="text" id="suiteName" placeholder="Введите название TestSuite" class="input">
+          <select id="suiteName" class="input">
+            <option value="">-- Выберите TestSuite --</option>
+            <option value="Все заявки">Все заявки</option>
+            <option value="Расписание заявок">Расписание заявок</option>
+            <option value="Маркировка">Маркировка</option>
+            <option value="Планировщик работ">Планировщик работ</option>
+            <option value="Объекты/Оборудование">Объекты/Оборудование</option>
+            <option value="Шаблон Объектов/Оборудования">Шаблон Объектов/Оборудования</option>
+            <option value="Заказчики">Заказчики</option>
+            <option value="Сотрудники">Сотрудники</option>
+            <option value="Приглашения">Приглашения</option>
+            <option value="Все компании">Все компании</option>
+            <option value="Договоры">Договоры</option>
+            <option value="Сообщения">Сообщения</option>
+            <option value="Шаблоны сообщений">Шаблоны сообщений</option>
+            <option value="Чек-листы">Чек-листы</option>
+            <option value="Склады">Склады</option>
+            <option value="Материалы">Материалы</option>
+            <option value="Остатки на складе">Остатки на складе</option>
+            <option value="Расход">Расход</option>
+          </select>
         </div>
 
         <div class="form-group">

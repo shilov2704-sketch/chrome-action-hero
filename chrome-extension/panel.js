@@ -2,6 +2,8 @@
 const state = {
   currentView: 'main',
   recordings: [],
+  folders: [],
+  currentFolder: null,
   currentRecording: null,
   isRecording: false,
   isContinuingRecording: false,
@@ -25,8 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Load recordings from storage
 async function loadRecordings() {
-  const result = await chrome.storage.local.get(['recordings']);
+  const result = await chrome.storage.local.get(['recordings', 'folders']);
   state.recordings = result.recordings || [];
+  state.folders = result.folders || [];
   renderRecordingsList();
 }
 
@@ -35,6 +38,12 @@ async function saveRecordings() {
   await chrome.storage.local.set({ recordings: state.recordings });
 }
 
+// Save folders to storage
+async function saveFolders() {
+  await chrome.storage.local.set({ folders: state.folders });
+}
+
+
 // Event Listeners
 function initializeEventListeners() {
   // Navigation
@@ -42,9 +51,13 @@ function initializeEventListeners() {
     state.currentView = 'create';
     updateView();
   });
+  
+  // Create folder
+  document.getElementById('createFolderBtn').addEventListener('click', createFolder);
 
   document.getElementById('backToMainBtn').addEventListener('click', () => {
     state.currentView = 'main';
+    state.currentFolder = null;
     updateView();
   });
 
@@ -250,7 +263,7 @@ async function startRecording() {
   }
 
   if (!suiteName) {
-    alert('Пожалуйста, введите название TestSuite');
+    alert('Пожалуйста, выберите TestSuite');
     return;
   }
 
@@ -442,7 +455,21 @@ function switchTab(tabName, parentPanel = document) {
 function renderRecordingsList() {
   const container = document.getElementById('recordingsList');
   
-  if (state.recordings.length === 0) {
+  // Get recordings for current view (folder or root)
+  let displayRecordings;
+  let displayFolders;
+  
+  if (state.currentFolder) {
+    // Inside a folder - show only recordings in this folder
+    displayRecordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
+    displayFolders = [];
+  } else {
+    // Root view - show folders and recordings without folder
+    displayRecordings = state.recordings.filter(r => !r.folderId);
+    displayFolders = state.folders;
+  }
+  
+  if (displayRecordings.length === 0 && displayFolders.length === 0 && !state.currentFolder) {
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">📹</div>
@@ -452,12 +479,50 @@ function renderRecordingsList() {
     `;
     return;
   }
+  
+  let html = '';
+  
+  // If inside a folder, show back button and folder name
+  if (state.currentFolder) {
+    html += `
+      <div class="folder-header">
+        <button class="btn btn-ghost back-to-root-btn">
+          <span class="icon">←</span> Назад
+        </button>
+        <div class="folder-title-container">
+          <span class="folder-title">${state.currentFolder.name}</span>
+          <button class="btn btn-ghost btn-small rename-folder-btn" title="Переименовать папку">✏️</button>
+        </div>
+      </div>
+    `;
+  }
+  
+  // Render folders
+  html += displayFolders.map(folder => {
+    const recordingsInFolder = state.recordings.filter(r => r.folderId === folder.id);
+    return `
+      <div class="folder-card" data-folder-id="${folder.id}">
+        <div class="folder-card-header">
+          <div class="folder-icon">📁</div>
+          <div class="folder-card-title">${folder.name}</div>
+          <button class="delete-folder-btn" data-folder-id="${folder.id}" title="Удалить папку">🗑</button>
+        </div>
+        <div class="folder-card-meta">
+          <span>📝 ${recordingsInFolder.length} записей</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 
-  container.innerHTML = state.recordings.map(recording => `
+  // Render recordings
+  html += displayRecordings.map(recording => `
     <div class="recording-card" data-id="${recording.id}">
       <div class="recording-card-header">
         <div class="recording-card-title">${recording.title}</div>
-        <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
+        <div class="recording-card-actions">
+          ${state.currentFolder ? `<button class="move-to-root-btn" data-id="${recording.id}" title="Переместить в общий список">📤</button>` : `<button class="move-to-folder-btn" data-id="${recording.id}" title="Переместить в папку">📁</button>`}
+          <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
+        </div>
       </div>
       <div class="recording-card-meta">
         <span>📝 ${recording.steps.length} шагов</span>
@@ -465,18 +530,66 @@ function renderRecordingsList() {
       </div>
     </div>
   `).join('');
+  
+  if (state.currentFolder && displayRecordings.length === 0) {
+    html += `
+      <div class="empty-state">
+        <div class="empty-icon">📂</div>
+        <h2>Папка пуста</h2>
+        <p>Добавьте записи в эту папку</p>
+      </div>
+    `;
+  }
+  
+  container.innerHTML = html;
 
-  // Add click handlers
+  // Add folder click handlers
+  container.querySelectorAll('.folder-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('delete-folder-btn')) {
+        const folderId = parseInt(card.dataset.folderId);
+        openFolder(folderId);
+      }
+    });
+  });
+  
+  // Add delete folder handlers
+  container.querySelectorAll('.delete-folder-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const folderId = parseInt(btn.dataset.folderId);
+      await deleteFolder(folderId);
+    });
+  });
+  
+  // Add back to root handler
+  const backBtn = container.querySelector('.back-to-root-btn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      state.currentFolder = null;
+      renderRecordingsList();
+    });
+  }
+  
+  // Add rename folder handler
+  const renameBtn = container.querySelector('.rename-folder-btn');
+  if (renameBtn) {
+    renameBtn.addEventListener('click', renameCurrentFolder);
+  }
+
+  // Add click handlers for recordings
   container.querySelectorAll('.recording-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-recording-btn')) {
+      if (!e.target.classList.contains('delete-recording-btn') && 
+          !e.target.classList.contains('move-to-folder-btn') &&
+          !e.target.classList.contains('move-to-root-btn')) {
         const id = parseInt(card.dataset.id);
         openRecording(id);
       }
     });
   });
   
-  // Add delete handlers
+  // Add delete recording handlers
   container.querySelectorAll('.delete-recording-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -486,6 +599,24 @@ function renderRecordingsList() {
         await saveRecordings();
         renderRecordingsList();
       }
+    });
+  });
+  
+  // Add move to folder handlers
+  container.querySelectorAll('.move-to-folder-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const recordingId = parseInt(btn.dataset.id);
+      await showMoveToFolderDialog(recordingId);
+    });
+  });
+  
+  // Add move to root handlers
+  container.querySelectorAll('.move-to-root-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const recordingId = parseInt(btn.dataset.id);
+      await moveRecordingToRoot(recordingId);
     });
   });
 }
@@ -1140,4 +1271,99 @@ function updateStepXPath(stepIndex, newXpath) {
   }
   
   updateCodePreview();
+}
+
+// Folder Functions
+async function createFolder() {
+  const name = prompt('Введите название папки:');
+  if (!name || !name.trim()) return;
+  
+  const folder = {
+    id: Date.now(),
+    name: name.trim(),
+    createdAt: new Date().toISOString()
+  };
+  
+  state.folders.push(folder);
+  await saveFolders();
+  renderRecordingsList();
+}
+
+function openFolder(folderId) {
+  const folder = state.folders.find(f => f.id === folderId);
+  if (folder) {
+    state.currentFolder = folder;
+    renderRecordingsList();
+  }
+}
+
+async function deleteFolder(folderId) {
+  const recordingsInFolder = state.recordings.filter(r => r.folderId === folderId);
+  
+  if (recordingsInFolder.length > 0) {
+    if (!confirm('При удалении папки будут удалены все записи, которые в нее добавлены. Вы уверены?')) {
+      return;
+    }
+    // Delete all recordings in the folder
+    state.recordings = state.recordings.filter(r => r.folderId !== folderId);
+    await saveRecordings();
+  }
+  
+  state.folders = state.folders.filter(f => f.id !== folderId);
+  await saveFolders();
+  renderRecordingsList();
+}
+
+async function renameCurrentFolder() {
+  if (!state.currentFolder) return;
+  
+  const newName = prompt('Введите новое название папки:', state.currentFolder.name);
+  if (!newName || !newName.trim() || newName.trim() === state.currentFolder.name) return;
+  
+  state.currentFolder.name = newName.trim();
+  
+  const folderIndex = state.folders.findIndex(f => f.id === state.currentFolder.id);
+  if (folderIndex !== -1) {
+    state.folders[folderIndex] = state.currentFolder;
+  }
+  
+  await saveFolders();
+  renderRecordingsList();
+}
+
+async function showMoveToFolderDialog(recordingId) {
+  if (state.folders.length === 0) {
+    alert('Сначала создайте папку');
+    return;
+  }
+  
+  const folderNames = state.folders.map((f, i) => `${i + 1}. ${f.name}`).join('\n');
+  const choice = prompt(`Выберите папку (введите номер):\n${folderNames}`);
+  
+  if (!choice) return;
+  
+  const folderIndex = parseInt(choice) - 1;
+  if (isNaN(folderIndex) || folderIndex < 0 || folderIndex >= state.folders.length) {
+    alert('Неверный номер папки');
+    return;
+  }
+  
+  const targetFolder = state.folders[folderIndex];
+  const recording = state.recordings.find(r => r.id === recordingId);
+  
+  if (recording) {
+    recording.folderId = targetFolder.id;
+    await saveRecordings();
+    renderRecordingsList();
+  }
+}
+
+async function moveRecordingToRoot(recordingId) {
+  const recording = state.recordings.find(r => r.id === recordingId);
+  
+  if (recording) {
+    delete recording.folderId;
+    await saveRecordings();
+    renderRecordingsList();
+  }
 }
