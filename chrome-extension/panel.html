@@ -23,10 +23,17 @@
               <option value="dark">Тёмная</option>
             </select>
           </label>
-          <button id="importRecordingBtn" class="btn btn-secondary">
-            <span class="icon">📥</span> Импорт
-          </button>
+          <div class="import-dropdown">
+            <button id="importRecordingBtn" class="btn btn-secondary">
+              <span class="icon">📥</span> Импорт
+            </button>
+            <div class="import-dropdown-menu" id="importDropdownMenu">
+              <button class="import-option" id="importRecordingOption">📄 Запись (JSON)</button>
+              <button class="import-option" id="importFolderOption">📁 Папка (ZIP)</button>
+            </div>
+          </div>
           <input type="file" id="importFileInput" accept=".json" style="display: none;" multiple>
+          <input type="file" id="importFolderInput" accept=".zip" style="display: none;">
           <button id="createFolderBtn" class="btn btn-secondary">
             <span class="icon">📁</span> Создать папку
           </button>
@@ -34,6 +41,18 @@
             <span class="icon">➕</span> Создать запись
           </button>
         </div>
+      </div>
+
+      <!-- Bulk Actions Bar -->
+      <div class="bulk-actions-bar" id="bulkActionsBar" style="display: none;">
+        <span class="bulk-count" id="bulkCount">0 выбрано</span>
+        <button class="btn btn-secondary" id="bulkExportBtn">
+          <span class="icon">📤</span> Экспорт
+        </button>
+        <button class="btn btn-danger" id="bulkDeleteBtn">
+          <span class="icon">🗑</span> Удалить
+        </button>
+        <button class="btn btn-ghost" id="bulkCancelBtn">Отмена</button>
       </div>
 
       <div class="recordings-list" id="recordingsList">
