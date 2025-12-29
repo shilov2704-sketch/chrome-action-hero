@@ -80,29 +80,55 @@ function findInteractiveElement(element) {
     checkElement = checkElement.parentElement;
   }
   
-  // Step 1: Check if the clicked element itself is a checkbox/radio button
-  // These should NOT be overridden by parent <a> or <button>
+  // Step 1: Special handling for checkbox/radio clicks
+  // - If checkbox is inside <a>: keep the previous behavior (record the short "::..." container) so replay clicks the checkbox, not the link.
+  // - If checkbox is inside <form>: record the checkbox itself (do not bubble up to the form).
   let isCheckboxOrRadio = false;
   let checkboxElement = null;
+  let checkboxLinkContainer = null;
+
   checkElement = element;
   while (checkElement && checkElement !== document.body) {
     const dataTest = checkElement.getAttribute('data-test') || '';
     const role = checkElement.getAttribute('role') || '';
     const inputType = checkElement.tagName?.toLowerCase() === 'input' ? checkElement.type : '';
-    
-    // Check if this is a checkbox or radio button
-    if (dataTest.toLowerCase().includes('checkbox') || 
-        dataTest.toLowerCase().includes('radio') ||
-        dataTest.toLowerCase().includes('checkboxfield') ||
-        role === 'checkbox' || 
-        role === 'radio' ||
-        inputType === 'checkbox' || 
-        inputType === 'radio') {
+
+    // Check if this is a checkbox or radio button (or their field wrappers)
+    if (
+      dataTest.toLowerCase().includes('checkbox') ||
+      dataTest.toLowerCase().includes('checkboxfield') ||
+      dataTest.toLowerCase().includes('radio') ||
+      role === 'checkbox' ||
+      role === 'radio' ||
+      inputType === 'checkbox' ||
+      inputType === 'radio'
+    ) {
       isCheckboxOrRadio = true;
       checkboxElement = checkElement;
+
+      // If the checkbox is inside a link, try to find the closest parent container with data-test starting with "::"
+      // (this is what replay logic expects to avoid clicking the <a> itself)
+      const linkAncestor = checkboxElement.closest('a');
+      if (linkAncestor) {
+        let parent = checkboxElement.parentElement;
+        while (parent && parent !== document.body) {
+          if (parent === linkAncestor) break;
+
+          const parentDataTest = parent.getAttribute('data-test') || '';
+          if (parentDataTest.startsWith('::')) {
+            checkboxLinkContainer = parent;
+            break;
+          }
+
+          const parentTag = parent.tagName?.toLowerCase();
+          if (parentTag === 'button' || parentTag === 'form') break;
+          parent = parent.parentElement;
+        }
+      }
+
       break;
     }
-    
+
     // Stop checking parents if we hit an <a>, <button>, or <form>
     const tagName = checkElement.tagName?.toLowerCase();
     if (tagName === 'a' || tagName === 'button' || tagName === 'form') {
@@ -110,9 +136,21 @@ function findInteractiveElement(element) {
     }
     checkElement = checkElement.parentElement;
   }
-  
-  // If we found a checkbox/radio element, return it directly
-  // This ensures we record the checkbox itself, not a parent form or container
+
+  // If checkbox is inside <a>, keep previous behavior
+  if (checkboxLinkContainer) {
+    return checkboxLinkContainer;
+  }
+
+  // If checkbox is inside <form>, apply the form-specific fix (do NOT record the form)
+  if (checkboxElement && checkboxElement.getAttribute('data-test')) {
+    const formAncestor = checkboxElement.closest('form');
+    if (formAncestor) {
+      return checkboxElement;
+    }
+  }
+
+  // Outside of forms, fall back to existing logic (but still prefer the checkbox element if we found it)
   if (checkboxElement && checkboxElement.getAttribute('data-test')) {
     return checkboxElement;
   }
