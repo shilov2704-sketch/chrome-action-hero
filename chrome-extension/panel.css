@@ -753,3 +753,57 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
+/* Editable Title */
+.editable-title {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.editable-title:hover {
+  color: var(--accent-primary);
+}
+
+/* XPath Edit Container */
+.xpath-edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.xpath-input {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+}
+
+.xpath-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-copy-xpath,
+.btn-save-xpath {
+  flex: 1;
+}
+
+.btn-copy-xpath {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-copy-xpath:hover {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.btn-save-xpath {
+  background: var(--success);
+  color: white;
+  border: none;
+}
+
+.btn-save-xpath:hover {
+  background: #2d9249;
+}

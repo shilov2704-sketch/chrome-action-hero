@@ -23,6 +23,10 @@
               <option value="dark">Тёмная</option>
             </select>
           </label>
+          <button id="importRecordingBtn" class="btn btn-secondary">
+            <span class="icon">📥</span> Импорт
+          </button>
+          <input type="file" id="importFileInput" accept=".json" style="display: none;" multiple>
           <button id="createRecordingBtn" class="btn btn-primary">
             <span class="icon">➕</span> Создать запись
           </button>
@@ -159,7 +163,10 @@
         <button id="backToMainFromPlaybackBtn" class="btn btn-ghost">
           <span class="icon">←</span> Назад
         </button>
-        <h1 id="playbackRecordingName">Воспроизведение</h1>
+        <h1 id="playbackRecordingName" class="editable-title" title="Нажмите чтобы переименовать">Воспроизведение</h1>
+        <button id="renameRecordingBtn" class="btn btn-ghost btn-small" title="Переименовать">
+          <span class="icon">✏️</span>
+        </button>
         <div class="header-actions">
           <button id="continueRecordingBtn" class="btn btn-primary">
             <span class="icon">⏺</span> Продолжить запись
