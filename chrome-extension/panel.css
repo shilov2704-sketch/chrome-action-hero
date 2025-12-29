@@ -999,6 +999,33 @@ body {
   background: rgba(234, 67, 53, 0.1);
 }
 
+.recording-card.play-in-progress {
+  border-color: #f9a825;
+  background: rgba(249, 168, 37, 0.15);
+  animation: pulse-yellow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-yellow {
+  0%, 100% { background: rgba(249, 168, 37, 0.15); }
+  50% { background: rgba(249, 168, 37, 0.25); }
+}
+
+/* Step playback results */
+.step-item.step-success {
+  border-left: 3px solid var(--success);
+  background: rgba(52, 168, 83, 0.1);
+}
+
+.step-item.step-error {
+  border-left: 3px solid var(--danger);
+  background: rgba(234, 67, 53, 0.1);
+}
+
+/* Reset Results Bar */
+.reset-results-bar {
+  padding: 0 16px;
+}
+
 /* Folder Playback Bar */
 .folder-playback-bar {
   display: flex;

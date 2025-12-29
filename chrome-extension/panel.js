@@ -20,7 +20,10 @@ const state = {
   folderPlayQueue: [],
   currentFolderPlayIndex: 0,
   playingFolderId: null,
-  folderPlayResults: {} // {recordingId: 'success' | 'error'}
+  folderPlayResults: {}, // {recordingId: 'success' | 'error'}
+  folderStepResults: {}, // {recordingId: {stepIndex: 'success' | 'error'}}
+  currentPlayingRecordingId: null,
+  folderPlaybackCompleted: false
 };
 
 // Initialize
@@ -103,6 +106,9 @@ function initializeEventListeners() {
   document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
   document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
   document.getElementById('bulkSelectAllBtn').addEventListener('click', selectAll);
+  
+  // Reset results button
+  document.getElementById('resetResultsBtn').addEventListener('click', resetFolderResults);
 
   // Rename recording
   document.getElementById('renameRecordingBtn').addEventListener('click', renameCurrentRecording);
@@ -554,8 +560,10 @@ function renderRecordingsList() {
   html += displayRecordings.map(recording => {
     const isSelected = state.selectedItems.some(s => s.type === 'recording' && s.id === recording.id);
     const playResult = state.folderPlayResults[recording.id];
+    const isCurrentlyPlaying = state.isPlayingFolder && state.currentPlayingRecordingId === recording.id;
     let resultClass = '';
-    if (playResult === 'success') resultClass = 'play-success';
+    if (isCurrentlyPlaying) resultClass = 'play-in-progress';
+    else if (playResult === 'success') resultClass = 'play-success';
     else if (playResult === 'error') resultClass = 'play-error';
     return `
       <div class="recording-card ${isSelected ? 'selected' : ''} ${resultClass}" data-id="${recording.id}">
@@ -922,15 +930,25 @@ function renderPlaybackView() {
   document.getElementById('playbackRecordingName').textContent = state.currentRecording.title;
   
   const container = document.getElementById('playbackStepsList');
-  container.innerHTML = state.currentRecording.steps.map((step, index) => `
-    <div class="step-item" data-index="${index}" data-step-id="step-${index}">
-      <div class="step-number">${index + 1}</div>
-      <div class="step-type">${step.type}</div>
-      <div class="step-icon">${getStepIcon(step.type)}</div>
-      <div class="step-status-icon"></div>
-      <button class="delete-step-btn" data-index="${index}" title="Удалить шаг">×</button>
-    </div>
-  `).join('');
+  const recordingId = state.currentRecording.id;
+  const stepResults = state.folderStepResults[recordingId] || {};
+  
+  container.innerHTML = state.currentRecording.steps.map((step, index) => {
+    const stepResult = stepResults[index];
+    let stepResultClass = '';
+    if (stepResult === 'success') stepResultClass = 'step-success';
+    else if (stepResult === 'error') stepResultClass = 'step-error';
+    
+    return `
+      <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}">
+        <div class="step-number">${index + 1}</div>
+        <div class="step-type">${step.type}</div>
+        <div class="step-icon">${getStepIcon(step.type)}</div>
+        <div class="step-status-icon"></div>
+        <button class="delete-step-btn" data-index="${index}" title="Удалить шаг">×</button>
+      </div>
+    `;
+  }).join('');
 
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
@@ -1629,6 +1647,9 @@ async function playFolder(folderId) {
   state.folderPlayQueue = recordings;
   state.currentFolderPlayIndex = 0;
   state.folderPlayResults = {};
+  state.folderStepResults = {};
+  state.currentPlayingRecordingId = null;
+  state.folderPlaybackCompleted = false;
   
   // Navigate to folder view
   state.currentFolder = folder;
@@ -1640,11 +1661,25 @@ async function playFolder(folderId) {
   await playNextInFolder();
 }
 
+// Reset folder playback results
+function resetFolderResults() {
+  state.folderPlayResults = {};
+  state.folderStepResults = {};
+  state.folderPlaybackCompleted = false;
+  state.currentPlayingRecordingId = null;
+  
+  const resetBtn = document.getElementById('resetResultsBtn');
+  if (resetBtn) resetBtn.style.display = 'none';
+  
+  renderRecordingsList();
+}
+
 function updateFolderPlaybackUI() {
   const playbackBar = document.getElementById('folderPlaybackBar');
   const createBtn = document.getElementById('createRecordingBtn');
   const folderText = document.getElementById('folderPlaybackText');
   const folderProgress = document.getElementById('folderPlaybackProgress');
+  const resetBtn = document.getElementById('resetResultsBtn');
   
   if (state.isPlayingFolder) {
     if (playbackBar) playbackBar.style.display = 'flex';
@@ -1655,9 +1690,14 @@ function updateFolderPlaybackUI() {
     if (folderProgress) {
       folderProgress.textContent = `${state.currentFolderPlayIndex}/${state.folderPlayQueue.length}`;
     }
+    if (resetBtn) resetBtn.style.display = 'none';
   } else {
     if (playbackBar) playbackBar.style.display = 'none';
     if (createBtn) createBtn.disabled = false;
+    // Show reset button if playback completed
+    if (resetBtn && state.folderPlaybackCompleted) {
+      resetBtn.style.display = 'inline-flex';
+    }
   }
 }
 
@@ -1667,17 +1707,25 @@ async function playNextInFolder() {
     state.playingFolderId = null;
     state.folderPlayQueue = [];
     state.currentFolderPlayIndex = 0;
+    state.currentPlayingRecordingId = null;
+    state.folderPlaybackCompleted = true;
     updateFolderPlaybackUI();
+    renderRecordingsList();
     alert('Воспроизведение папки завершено');
     return;
   }
   
   const recording = state.folderPlayQueue[state.currentFolderPlayIndex];
   state.currentRecording = recording;
+  state.currentPlayingRecordingId = recording.id;
   state.currentFolderPlayIndex++;
   
-  // Update progress
+  // Initialize step results for this recording
+  state.folderStepResults[recording.id] = {};
+  
+  // Update progress and re-render to show yellow highlight
   updateFolderPlaybackUI();
+  renderRecordingsList();
   
   console.log(`Playing recording ${state.currentFolderPlayIndex}/${state.folderPlayQueue.length}: ${recording.title}`);
   
@@ -1703,8 +1751,16 @@ async function playNextInFolder() {
     
     // Set up listener for replay step status
     const stepStatusListener = (message) => {
-      if (message.action === 'replayStepStatus' && message.status === 'error') {
-        hadError = true;
+      if (message.action === 'replayStepStatus') {
+        const stepIndex = message.stepIndex !== undefined ? message.stepIndex : (message.actualIndex !== undefined ? message.actualIndex : null);
+        if (stepIndex !== null) {
+          if (message.status === 'error') {
+            hadError = true;
+            state.folderStepResults[recording.id][stepIndex] = 'error';
+          } else if (message.status === 'success') {
+            state.folderStepResults[recording.id][stepIndex] = 'success';
+          }
+        }
       }
     };
     
@@ -1718,6 +1774,7 @@ async function playNextInFolder() {
         
         // Mark result
         state.folderPlayResults[recording.id] = hadError ? 'error' : 'success';
+        state.currentPlayingRecordingId = null;
         renderRecordingsList();
         
         // Wait a bit before playing next
@@ -1738,6 +1795,7 @@ async function playNextInFolder() {
   } catch (error) {
     console.error('Error replaying recording:', error);
     state.folderPlayResults[recording.id] = 'error';
+    state.currentPlayingRecordingId = null;
     renderRecordingsList();
     // Try to continue with next recording
     setTimeout(() => {
