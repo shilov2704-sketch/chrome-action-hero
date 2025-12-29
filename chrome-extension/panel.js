@@ -18,7 +18,9 @@ const state = {
   selectedItems: [], // {type: 'recording'|'folder', id: number}
   isPlayingFolder: false,
   folderPlayQueue: [],
-  currentFolderPlayIndex: 0
+  currentFolderPlayIndex: 0,
+  playingFolderId: null,
+  folderPlayResults: {} // {recordingId: 'success' | 'error'}
 };
 
 // Initialize
@@ -100,6 +102,7 @@ function initializeEventListeners() {
   document.getElementById('bulkExportBtn').addEventListener('click', handleBulkExport);
   document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
   document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
+  document.getElementById('bulkSelectAllBtn').addEventListener('click', selectAll);
 
   // Rename recording
   document.getElementById('renameRecordingBtn').addEventListener('click', renameCurrentRecording);
@@ -550,8 +553,12 @@ function renderRecordingsList() {
   // Render recordings
   html += displayRecordings.map(recording => {
     const isSelected = state.selectedItems.some(s => s.type === 'recording' && s.id === recording.id);
+    const playResult = state.folderPlayResults[recording.id];
+    let resultClass = '';
+    if (playResult === 'success') resultClass = 'play-success';
+    else if (playResult === 'error') resultClass = 'play-error';
     return `
-      <div class="recording-card ${isSelected ? 'selected' : ''}" data-id="${recording.id}">
+      <div class="recording-card ${isSelected ? 'selected' : ''} ${resultClass}" data-id="${recording.id}">
         <div class="recording-card-header">
           <input type="checkbox" class="bulk-checkbox recording-checkbox" data-id="${recording.id}" ${isSelected ? 'checked' : ''}>
           <div class="recording-card-title">${recording.title}</div>
@@ -1618,19 +1625,49 @@ async function playFolder(folderId) {
   if (recordings.length === 0) return;
   
   state.isPlayingFolder = true;
+  state.playingFolderId = folderId;
   state.folderPlayQueue = recordings;
   state.currentFolderPlayIndex = 0;
+  state.folderPlayResults = {};
   
-  alert(`Начинается воспроизведение ${recordings.length} записей папки "${folder.name}"`);
+  // Navigate to folder view
+  state.currentFolder = folder;
+  renderRecordingsList();
+  
+  // Show playback bar and disable create button
+  updateFolderPlaybackUI();
   
   await playNextInFolder();
+}
+
+function updateFolderPlaybackUI() {
+  const playbackBar = document.getElementById('folderPlaybackBar');
+  const createBtn = document.getElementById('createRecordingBtn');
+  const folderText = document.getElementById('folderPlaybackText');
+  const folderProgress = document.getElementById('folderPlaybackProgress');
+  
+  if (state.isPlayingFolder) {
+    if (playbackBar) playbackBar.style.display = 'flex';
+    if (createBtn) createBtn.disabled = true;
+    if (folderText && state.currentFolder) {
+      folderText.textContent = `Воспроизведение папки "${state.currentFolder.name}"`;
+    }
+    if (folderProgress) {
+      folderProgress.textContent = `${state.currentFolderPlayIndex}/${state.folderPlayQueue.length}`;
+    }
+  } else {
+    if (playbackBar) playbackBar.style.display = 'none';
+    if (createBtn) createBtn.disabled = false;
+  }
 }
 
 async function playNextInFolder() {
   if (!state.isPlayingFolder || state.currentFolderPlayIndex >= state.folderPlayQueue.length) {
     state.isPlayingFolder = false;
+    state.playingFolderId = null;
     state.folderPlayQueue = [];
     state.currentFolderPlayIndex = 0;
+    updateFolderPlaybackUI();
     alert('Воспроизведение папки завершено');
     return;
   }
@@ -1638,6 +1675,9 @@ async function playNextInFolder() {
   const recording = state.folderPlayQueue[state.currentFolderPlayIndex];
   state.currentRecording = recording;
   state.currentFolderPlayIndex++;
+  
+  // Update progress
+  updateFolderPlaybackUI();
   
   console.log(`Playing recording ${state.currentFolderPlayIndex}/${state.folderPlayQueue.length}: ${recording.title}`);
   
@@ -1658,10 +1698,28 @@ async function playNextInFolder() {
       console.warn('Debugger attach failed:', e);
     }
     
+    // Track if there was an error
+    let hadError = false;
+    
+    // Set up listener for replay step status
+    const stepStatusListener = (message) => {
+      if (message.action === 'replayStepStatus' && message.status === 'error') {
+        hadError = true;
+      }
+    };
+    
+    chrome.runtime.onMessage.addListener(stepStatusListener);
+    
     // Set up listener for replay completion
     const replayCompletedListener = (message) => {
       if (message.action === 'replayCompleted' || message.action === 'replayStopped') {
         chrome.runtime.onMessage.removeListener(replayCompletedListener);
+        chrome.runtime.onMessage.removeListener(stepStatusListener);
+        
+        // Mark result
+        state.folderPlayResults[recording.id] = hadError ? 'error' : 'success';
+        renderRecordingsList();
+        
         // Wait a bit before playing next
         setTimeout(() => {
           playNextInFolder();
@@ -1679,11 +1737,34 @@ async function playNextInFolder() {
     });
   } catch (error) {
     console.error('Error replaying recording:', error);
+    state.folderPlayResults[recording.id] = 'error';
+    renderRecordingsList();
     // Try to continue with next recording
     setTimeout(() => {
       playNextInFolder();
     }, 1000);
   }
+}
+
+// Select all visible items
+function selectAll() {
+  // Get all visible items based on current folder
+  let items = [];
+  
+  if (state.currentFolder) {
+    // Inside folder - select all recordings in this folder
+    const recordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
+    items = recordings.map(r => ({ type: 'recording', id: r.id }));
+  } else {
+    // Root view - select all folders and root recordings
+    const folders = state.folders.map(f => ({ type: 'folder', id: f.id }));
+    const recordings = state.recordings.filter(r => !r.folderId).map(r => ({ type: 'recording', id: r.id }));
+    items = [...folders, ...recordings];
+  }
+  
+  state.selectedItems = items;
+  updateBulkActionsBar();
+  renderRecordingsList();
 }
 
 // Load JSZip library
