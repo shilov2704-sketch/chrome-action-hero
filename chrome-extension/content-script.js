@@ -839,6 +839,44 @@ async function executeStep(step, settings) {
 
         let actualClickTarget = clickElement;
 
+        // Special case: short data-test wrappers ("::...") inside <a> often wrap a custom checkbox.
+        // Clicking the wrapper can bubble to <a> and open the link, so click the checkbox element itself.
+        if (containerDataTest.startsWith('::')) {
+          const linkAncestor = clickElement.closest?.('a');
+          if (linkAncestor) {
+            const isCheckable = (el) => {
+              if (!el) return false;
+              const tag = el.tagName?.toLowerCase();
+              if (tag === 'input') return el.type === 'checkbox' || el.type === 'radio';
+              const role = el.getAttribute?.('role');
+              if (role === 'checkbox' || role === 'radio') return true;
+              const dt = (el.getAttribute?.('data-test') || '').toLowerCase();
+              return dt.includes('checkbox') || dt.includes('radio');
+            };
+
+            const findCheckableNearPoint = (container, atPoint) => {
+              let cur = atPoint;
+              while (cur && cur !== document.body) {
+                if (container.contains(cur) && isCheckable(cur)) return cur;
+                if (cur === container) break;
+                cur = cur.parentElement;
+              }
+
+              return container.querySelector(
+                'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], [data-test*="CheckBox"], [data-test*="checkbox"], [data-test*="Radio"], [data-test*="radio"]'
+              );
+            };
+
+            const checkable = findCheckableNearPoint(clickElement, pointEl);
+            if (checkable) {
+              actualClickTarget = checkable;
+              const targetRect = actualClickTarget.getBoundingClientRect();
+              clickX = targetRect.left + targetRect.width / 2;
+              clickY = targetRect.top + targetRect.height / 2;
+            }
+          }
+        }
+
         if (!shouldTrustSelectorTarget) {
           // Resolve to the best click target (checkbox/radio/button inside containers)
           const resolveReplayClickTarget = (container, atPoint) => {
