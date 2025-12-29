@@ -871,9 +871,11 @@ async function executeStep(step, settings) {
             const checkable = findCheckableNearPoint(clickElement, pointEl);
             if (checkable) {
               actualClickTarget = checkable;
+              forceSyntheticClick = true; // Force synthetic click to prevent link navigation
               const targetRect = actualClickTarget.getBoundingClientRect();
               clickX = targetRect.left + targetRect.width / 2;
               clickY = targetRect.top + targetRect.height / 2;
+              console.log('Checkbox inside <a> detected, forcing synthetic click on:', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test'));
             }
           }
         }
@@ -953,12 +955,13 @@ async function executeStep(step, settings) {
         }
 
         // Use Chrome Debugger API for real isTrusted clicks
+        // BUT skip debugger click for checkboxes inside <a> - use synthetic to prevent navigation
         const tabId = settings?.tabId;
-        console.log('Dispatching debugger click at', clickX, clickY, 'on', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test') || '', 'tabId:', tabId);
+        console.log('Dispatching click at', clickX, clickY, 'on', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test') || '', 'tabId:', tabId, 'forceSyntheticClick:', forceSyntheticClick);
         
         let clickSucceeded = false;
         
-        if (tabId) {
+        if (tabId && !forceSyntheticClick) {
           try {
             const response = await new Promise((resolve) => {
               chrome.runtime.sendMessage({
@@ -982,15 +985,28 @@ async function executeStep(step, settings) {
         }
         
         // Fallback to synthetic click if debugger click failed or tabId not available
-        if (!clickSucceeded) {
-          console.log('Using synthetic click fallback');
+        // OR forced synthetic click for checkbox inside <a>
+        if (!clickSucceeded || forceSyntheticClick) {
+          console.log('Using synthetic click', forceSyntheticClick ? '(forced for checkbox inside <a>)' : '(fallback)');
+          
+          // For checkbox inside <a>, add click handler to prevent link navigation
+          const linkAncestor = forceSyntheticClick ? actualClickTarget.closest?.('a') : null;
+          const preventNavigation = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          };
+          
+          if (linkAncestor) {
+            linkAncestor.addEventListener('click', preventNavigation, { capture: true, once: true });
+          }
           
           // Focus first for inputs
           const tagName = actualClickTarget.tagName?.toLowerCase();
           const role = actualClickTarget.getAttribute?.('role');
           const isInput = tagName === 'input' || tagName === 'select' || role === 'checkbox' || role === 'radio';
+          const isCustomCheckbox = (actualClickTarget.getAttribute?.('data-test') || '').toLowerCase().includes('checkbox');
           
-          if (isInput) {
+          if (isInput || isCustomCheckbox) {
             actualClickTarget.focus?.();
             await new Promise(resolve => setTimeout(resolve, 50));
           }
@@ -1034,6 +1050,19 @@ async function executeStep(step, settings) {
               actualClickTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
             }
             actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+          }
+          
+          // For custom checkboxes (div with data-test*="CheckBox"), toggle state manually
+          if (isCustomCheckbox && tagName !== 'input') {
+            console.log('Custom checkbox clicked, triggering change event');
+            actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+          }
+          
+          // Clean up navigation prevention handler after a short delay
+          if (linkAncestor) {
+            setTimeout(() => {
+              linkAncestor.removeEventListener('click', preventNavigation, { capture: true });
+            }, 100);
           }
         }
 
