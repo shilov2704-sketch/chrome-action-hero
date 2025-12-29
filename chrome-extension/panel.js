@@ -560,7 +560,12 @@ function renderStepDetails(step, isPlayback = false) {
     for (const selector of step.selectors) {
       const selectorStr = Array.isArray(selector) ? selector[0] : selector;
       if (typeof selectorStr === 'string' && selectorStr.startsWith('xpath/')) {
-        xpathSelector = selectorStr.replace('xpath/', '');
+        let xpath = selectorStr.replace('xpath/', '');
+        // Ensure XPath starts with //
+        if (xpath.startsWith('/') && !xpath.startsWith('//')) {
+          xpath = '/' + xpath;
+        }
+        xpathSelector = xpath;
         break;
       }
     }
@@ -596,16 +601,15 @@ function renderStepDetails(step, isPlayback = false) {
   
   // XPath edit section
   let xpathEditHTML = '';
-  if (xpathSelector || (step.selectors && step.selectors.length > 0)) {
+  if (xpathSelector) {
     xpathEditHTML = `
       <tr>
         <th>XPath</th>
         <td>
           <div class="xpath-edit-container">
-            <input type="text" class="xpath-input input" value="${xpathSelector}" placeholder="XPath выражение">
+            <input type="text" class="xpath-input input" value="${xpathSelector}" placeholder="XPath выражение" readonly>
             <div class="xpath-actions">
               <button class="btn btn-small btn-copy-xpath" title="Скопировать XPath">📋 Копировать</button>
-              <button class="btn btn-small btn-save-xpath" title="Сохранить изменения">💾 Сохранить</button>
             </div>
           </div>
         </td>
@@ -657,32 +661,50 @@ function renderStepDetails(step, isPlayback = false) {
   
   // Add event listeners for XPath buttons
   const copyBtn = container.querySelector('.btn-copy-xpath');
-  const saveBtn = container.querySelector('.btn-save-xpath');
   const xpathInput = container.querySelector('.xpath-input');
   
   if (copyBtn && xpathInput) {
-    copyBtn.addEventListener('click', () => {
+    copyBtn.addEventListener('click', async () => {
       const xpath = xpathInput.value;
-      navigator.clipboard.writeText(xpath).then(() => {
+      try {
+        // Try modern API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(xpath);
+        } else {
+          // Fallback for extensions
+          const textArea = document.createElement('textarea');
+          textArea.value = xpath;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-9999px';
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+        }
         copyBtn.textContent = '✓ Скопировано';
         setTimeout(() => {
           copyBtn.textContent = '📋 Копировать';
         }, 2000);
-      }).catch(err => {
+      } catch (err) {
         console.error('Failed to copy:', err);
-        alert('Не удалось скопировать в буфер обмена');
-      });
-    });
-  }
-  
-  if (saveBtn && xpathInput) {
-    saveBtn.addEventListener('click', () => {
-      const newXpath = xpathInput.value;
-      updateStepXPath(state.selectedStep, newXpath);
-      saveBtn.textContent = '✓ Сохранено';
-      setTimeout(() => {
-        saveBtn.textContent = '💾 Сохранить';
-      }, 2000);
+        // Fallback method
+        const textArea = document.createElement('textarea');
+        textArea.value = xpath;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          copyBtn.textContent = '✓ Скопировано';
+          setTimeout(() => {
+            copyBtn.textContent = '📋 Копировать';
+          }, 2000);
+        } catch (e) {
+          alert('Не удалось скопировать в буфер обмена');
+        }
+        document.body.removeChild(textArea);
+      }
     });
   }
 }
@@ -964,14 +986,39 @@ function scrollToStepInCode(stepIndex, previewElementId = 'codePreview') {
   
   if (stepLine === -1) return;
   
-  // Calculate scroll position based on line height
+  // Create a temporary span to measure exact character position
+  const textContent = codePreview.textContent;
+  const linesUpToStep = lines.slice(0, stepLine);
+  const charsBeforeStep = linesUpToStep.join('\n').length;
+  
+  // Use a range to find the exact position
+  const textNode = codePreview.firstChild;
+  if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange();
+    try {
+      range.setStart(textNode, Math.min(charsBeforeStep, textNode.length));
+      range.setEnd(textNode, Math.min(charsBeforeStep + 1, textNode.length));
+      const rect = range.getBoundingClientRect();
+      const containerRect = codePreview.getBoundingClientRect();
+      const scrollTop = rect.top - containerRect.top + codePreview.scrollTop - 50;
+      
+      codePreview.scrollTo({
+        top: Math.max(0, scrollTop),
+        behavior: 'smooth'
+      });
+      return;
+    } catch (e) {
+      console.warn('Range scroll failed, using fallback', e);
+    }
+  }
+  
+  // Fallback: Calculate scroll position based on line height
   const computedStyle = window.getComputedStyle(codePreview);
   const lineHeight = parseFloat(computedStyle.lineHeight) || 20;
   const scrollPosition = stepLine * lineHeight;
   
-  // Smooth scroll to the step with offset for better visibility
   codePreview.scrollTo({
-    top: Math.max(0, scrollPosition - 100),
+    top: Math.max(0, scrollPosition - 50),
     behavior: 'smooth'
   });
 }
