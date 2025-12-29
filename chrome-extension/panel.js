@@ -54,6 +54,17 @@ function initializeEventListeners() {
     renderRecordingsList();
   });
 
+  // Import recording
+  document.getElementById('importRecordingBtn').addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+  });
+
+  document.getElementById('importFileInput').addEventListener('change', handleImportFiles);
+
+  // Rename recording
+  document.getElementById('renameRecordingBtn').addEventListener('click', renameCurrentRecording);
+  document.getElementById('playbackRecordingName').addEventListener('click', renameCurrentRecording);
+
   // Theme switcher
   const themeSelect = document.getElementById('themeSelect');
   if (themeSelect) {
@@ -538,8 +549,22 @@ function selectStep(index) {
   }
 }
 
-function renderStepDetails(step) {
-  const container = document.getElementById('stepDetails');
+function renderStepDetails(step, isPlayback = false) {
+  const containerId = isPlayback ? 'playbackStepDetails' : 'stepDetails';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  
+  // Find XPath selector if exists
+  let xpathSelector = '';
+  if (step.selectors && step.selectors.length > 0) {
+    for (const selector of step.selectors) {
+      const selectorStr = Array.isArray(selector) ? selector[0] : selector;
+      if (typeof selectorStr === 'string' && selectorStr.startsWith('xpath/')) {
+        xpathSelector = selectorStr.replace('xpath/', '');
+        break;
+      }
+    }
+  }
   
   let selectorsHTML = '';
   if (step.selectors && step.selectors.length > 0) {
@@ -568,6 +593,25 @@ function renderStepDetails(step) {
       </tr>
     `;
   }
+  
+  // XPath edit section
+  let xpathEditHTML = '';
+  if (xpathSelector || (step.selectors && step.selectors.length > 0)) {
+    xpathEditHTML = `
+      <tr>
+        <th>XPath</th>
+        <td>
+          <div class="xpath-edit-container">
+            <input type="text" class="xpath-input input" value="${xpathSelector}" placeholder="XPath выражение">
+            <div class="xpath-actions">
+              <button class="btn btn-small btn-copy-xpath" title="Скопировать XPath">📋 Копировать</button>
+              <button class="btn btn-small btn-save-xpath" title="Сохранить изменения">💾 Сохранить</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
 
   container.innerHTML = `
     <table class="step-details-table">
@@ -582,6 +626,7 @@ function renderStepDetails(step) {
         </tr>
       ` : ''}
       ${selectorsHTML}
+      ${xpathEditHTML}
       ${offsetHTML}
       ${step.name ? `
         <tr>
@@ -609,6 +654,37 @@ function renderStepDetails(step) {
       ` : ''}
     </table>
   `;
+  
+  // Add event listeners for XPath buttons
+  const copyBtn = container.querySelector('.btn-copy-xpath');
+  const saveBtn = container.querySelector('.btn-save-xpath');
+  const xpathInput = container.querySelector('.xpath-input');
+  
+  if (copyBtn && xpathInput) {
+    copyBtn.addEventListener('click', () => {
+      const xpath = xpathInput.value;
+      navigator.clipboard.writeText(xpath).then(() => {
+        copyBtn.textContent = '✓ Скопировано';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 Копировать';
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Не удалось скопировать в буфер обмена');
+      });
+    });
+  }
+  
+  if (saveBtn && xpathInput) {
+    saveBtn.addEventListener('click', () => {
+      const newXpath = xpathInput.value;
+      updateStepXPath(state.selectedStep, newXpath);
+      saveBtn.textContent = '✓ Сохранено';
+      setTimeout(() => {
+        saveBtn.textContent = '💾 Сохранить';
+      }, 2000);
+    });
+  }
 }
 
 function renderPlaybackView() {
@@ -667,9 +743,7 @@ function renderPlaybackView() {
 }
 
 function renderPlaybackStepDetails(step) {
-  const container = document.getElementById('playbackStepDetails');
-  renderStepDetails.call({ innerHTML: '' }, step);
-  container.innerHTML = document.getElementById('stepDetails').innerHTML;
+  renderStepDetails(step, true);
 }
 
 function prepareRecordingForExport(recording) {
@@ -900,4 +974,123 @@ function scrollToStepInCode(stepIndex, previewElementId = 'codePreview') {
     top: Math.max(0, scrollPosition - 100),
     behavior: 'smooth'
   });
+}
+
+// Import JSON files
+async function handleImportFiles(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  
+  let importedCount = 0;
+  let errorCount = 0;
+  
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      const recording = JSON.parse(text);
+      
+      // Validate required fields
+      if (!recording.title || !recording.steps || !Array.isArray(recording.steps)) {
+        console.error('Invalid recording format:', file.name);
+        errorCount++;
+        continue;
+      }
+      
+      // Merge checkSteps back into steps if present
+      if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+        recording.steps = [...recording.steps, ...recording.checkSteps];
+        delete recording.checkSteps;
+      }
+      
+      // Generate new ID and update timestamp
+      recording.id = Date.now() + importedCount;
+      recording.createdAt = recording.createdAt || new Date().toISOString();
+      
+      state.recordings.push(recording);
+      importedCount++;
+    } catch (err) {
+      console.error('Error importing file:', file.name, err);
+      errorCount++;
+    }
+  }
+  
+  if (importedCount > 0) {
+    await saveRecordings();
+    renderRecordingsList();
+  }
+  
+  // Clear input for re-import
+  event.target.value = '';
+  
+  if (errorCount > 0) {
+    alert(`Импортировано: ${importedCount}, ошибок: ${errorCount}`);
+  } else if (importedCount > 0) {
+    alert(`Успешно импортировано: ${importedCount} записей`);
+  }
+}
+
+// Rename current recording
+async function renameCurrentRecording() {
+  if (!state.currentRecording) return;
+  
+  const newName = prompt('Введите новое название записи:', state.currentRecording.title);
+  if (newName === null || newName.trim() === '') return;
+  
+  state.currentRecording.title = newName.trim();
+  
+  // Update in recordings array
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex].title = newName.trim();
+  }
+  
+  await saveRecordings();
+  
+  // Update UI
+  document.getElementById('playbackRecordingName').textContent = newName.trim();
+  updateCodePreview();
+}
+
+// Update XPath in step
+function updateStepXPath(stepIndex, newXpath) {
+  if (!state.currentRecording || stepIndex === null || stepIndex === undefined) return;
+  
+  const step = state.currentRecording.steps[stepIndex];
+  if (!step || !step.selectors) return;
+  
+  // Find and update XPath selector
+  let xpathFound = false;
+  for (let i = 0; i < step.selectors.length; i++) {
+    const selector = step.selectors[i];
+    const selectorStr = Array.isArray(selector) ? selector[0] : selector;
+    
+    if (typeof selectorStr === 'string' && selectorStr.startsWith('xpath/')) {
+      // Update existing XPath
+      if (Array.isArray(step.selectors[i])) {
+        step.selectors[i][0] = 'xpath/' + newXpath;
+      } else {
+        step.selectors[i] = 'xpath/' + newXpath;
+      }
+      xpathFound = true;
+      break;
+    }
+  }
+  
+  // Add new XPath selector if not found
+  if (!xpathFound && newXpath) {
+    step.selectors.push('xpath/' + newXpath);
+  }
+  
+  // Update in recordings array
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+  }
+  
+  // Save if not currently recording
+  if (!state.isRecording) {
+    saveRecordings();
+  }
+  
+  updateCodePreview();
 }
