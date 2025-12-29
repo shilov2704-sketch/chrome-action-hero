@@ -836,8 +836,9 @@ async function executeStep(step, settings) {
         // and for any offset-based click.
         const containerDataTest = clickElement.getAttribute?.('data-test') || '';
         const shouldTrustSelectorTarget = hasOffsets || containerDataTest.startsWith('::');
-
+ 
         let actualClickTarget = clickElement;
+        let forceSyntheticClick = false;
 
         // Special case: short data-test wrappers ("::...") inside <a> often wrap a custom checkbox.
         // Clicking the wrapper can bubble to <a> and open the link, so click the checkbox element itself.
