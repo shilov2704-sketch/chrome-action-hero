@@ -944,6 +944,49 @@ async function executeStep(step, settings) {
           }
         }
 
+        // For <li> items, the real clickable target is often a nested <a>/<button> or [role="menuitem"].
+        // If we recorded the <li> itself (via data-test), resolve to an interactive descendant so the UI action actually triggers.
+        if (containerTag === 'li' && !hasOffsets && !forceSyntheticClick) {
+          const resolveListItemTarget = (container, atPoint) => {
+            const isClickable = (el) => {
+              if (!el) return false;
+              const t = el.tagName?.toLowerCase?.();
+              const role = el.getAttribute?.('role');
+              return (
+                t === 'a' ||
+                t === 'button' ||
+                role === 'button' ||
+                role === 'menuitem' ||
+                role === 'option' ||
+                role === 'tab'
+              );
+            };
+
+            const isWithin = atPoint && container.contains(atPoint);
+            const start = isWithin ? atPoint : container;
+
+            let cur = start;
+            while (cur && cur !== document.body) {
+              if (container.contains(cur) && isClickable(cur)) return cur;
+              if (cur === container) break;
+              cur = cur.parentElement;
+            }
+
+            const descendant = container.querySelector(
+              'a, button, [role="button"], [role="menuitem"], [role="option"], [role="tab"]'
+            );
+            return descendant || container;
+          };
+
+          const liTarget = resolveListItemTarget(clickElement, pointEl);
+          if (liTarget && liTarget !== actualClickTarget) {
+            actualClickTarget = liTarget;
+            const targetRect = actualClickTarget.getBoundingClientRect();
+            clickX = targetRect.left + targetRect.width / 2;
+            clickY = targetRect.top + targetRect.height / 2;
+          }
+        }
+
         if (!shouldTrustSelectorTarget) {
           // Resolve to the best click target (checkbox/radio/button inside containers)
           const resolveReplayClickTarget = (container, atPoint) => {
@@ -968,13 +1011,17 @@ async function executeStep(step, settings) {
 
             const isClickable = (el) => {
               const t = el?.tagName?.toLowerCase();
+              const role = el?.getAttribute?.('role');
               return (
                 isDataTestCheckable(el) ||
                 isCheckableInput(el) ||
                 isRoleCheckable(el) ||
                 t === 'button' ||
                 t === 'a' ||
-                el?.getAttribute?.('role') === 'button'
+                role === 'button' ||
+                role === 'menuitem' ||
+                role === 'option' ||
+                role === 'tab'
               );
             };
 
@@ -987,7 +1034,7 @@ async function executeStep(step, settings) {
 
             // Fallback: search inside container for likely controls
             const descendant = container.querySelector(
-              'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], button, a, [role="button"]'
+              'input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"], button, a, [role="button"], [role="menuitem"], [role="option"], [role="tab"]'
             );
             return descendant || container;
           };
