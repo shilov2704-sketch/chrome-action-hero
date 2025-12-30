@@ -891,6 +891,19 @@ async function executeStep(step, settings) {
         let actualClickTarget = clickElement;
         let forceSyntheticClick = false;
 
+        // Menu toggles in sidebars are often nested short "::..." wrappers.
+        // Clicking the wrapper sometimes lands on a different element (overlay/layout), so for these
+        // cases prefer the nearest meaningful data-test ancestor (not starting with "::").
+        if (isShortSelector) {
+          const linkAncestor = clickElement.closest?.('a');
+          if (!linkAncestor) {
+            const meaningfulAncestor = clickElement.closest?.('[data-test]:not([data-test^="::"])');
+            if (meaningfulAncestor) {
+              actualClickTarget = meaningfulAncestor;
+            }
+          }
+        }
+
         // Special case: short data-test wrappers ("::...") inside <a> often wrap a custom checkbox.
         // Clicking the wrapper can bubble to <a> and open the link, so click the checkbox element itself.
         if (isShortSelector) {
@@ -1002,9 +1015,56 @@ async function executeStep(step, settings) {
             clickY = newRect.top + newRect.height / 2;
           }
 
-          // If the computed point no longer lands on the target (layout changes), fall back to center.
-          const elAtFinalPoint = document.elementFromPoint(clickX, clickY);
-          if (elAtFinalPoint && !actualClickTarget.contains(elAtFinalPoint)) {
+          // If the computed point no longer lands on the target (layout changes / overlays),
+          // search for a point inside the element that actually resolves via elementFromPoint.
+          const clampToViewport = (x, y) => {
+            const vx = clamp(x, 1, Math.max(1, window.innerWidth - 2));
+            const vy = clamp(y, 1, Math.max(1, window.innerHeight - 2));
+            return { x: vx, y: vy };
+          };
+
+          const pickPointInsideTarget = (rect, target) => {
+            const inset = 6;
+            const xs = [
+              rect.left + inset,
+              rect.left + rect.width * 0.25,
+              rect.left + rect.width * 0.5,
+              rect.left + rect.width * 0.75,
+              rect.right - inset,
+            ];
+            const ys = [
+              rect.top + inset,
+              rect.top + rect.height * 0.25,
+              rect.top + rect.height * 0.5,
+              rect.top + rect.height * 0.75,
+              rect.bottom - inset,
+            ];
+
+            // Prefer current computed point first.
+            const candidates = [{ x: clickX, y: clickY }];
+            for (const y of ys) {
+              for (const x of xs) {
+                candidates.push({ x, y });
+              }
+            }
+
+            for (const pt of candidates) {
+              const p = clampToViewport(pt.x, pt.y);
+              const el = document.elementFromPoint(p.x, p.y);
+              if (el && (el === target || target.contains(el))) {
+                return p;
+              }
+            }
+
+            return null;
+          };
+
+          const picked = pickPointInsideTarget(newRect, actualClickTarget);
+          if (picked) {
+            clickX = picked.x;
+            clickY = picked.y;
+          } else {
+            // Worst-case fallback to center.
             clickX = newRect.left + newRect.width / 2;
             clickY = newRect.top + newRect.height / 2;
           }
@@ -1016,9 +1076,9 @@ async function executeStep(step, settings) {
         // BUT skip debugger click for checkboxes inside <a> - use synthetic to prevent navigation
         const tabId = settings?.tabId;
         console.log('Dispatching click at', clickX, clickY, 'on', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test') || '', 'tabId:', tabId, 'forceSyntheticClick:', forceSyntheticClick);
-        
+
         let clickSucceeded = false;
-        
+
         if (tabId && !forceSyntheticClick) {
           try {
             const response = await new Promise((resolve) => {
@@ -1030,7 +1090,7 @@ async function executeStep(step, settings) {
                 clickCount: 1
               }, resolve);
             });
-            
+
             if (response && response.success) {
               clickSucceeded = true;
               console.log('Debugger click succeeded');
