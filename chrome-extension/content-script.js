@@ -830,18 +830,34 @@ async function executeStep(step, settings) {
     case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
-        // Scroll element into view
-        clickElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Scroll element into view (avoid smooth scrolling so coordinates don't drift during animation)
+        clickElement.scrollIntoView({ behavior: 'auto', block: 'center' });
+        await new Promise(resolve => setTimeout(resolve, 150));
 
-        // Calculate click coordinates (preserve recorded offsets)
+        // Calculate click coordinates (preserve recorded offsets when possible)
         const containerRect = clickElement.getBoundingClientRect();
         const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
 
-        const calcPoint = (rect) => ({
-          x: rect.left + (hasOffsets ? step.offsetX : rect.width / 2),
-          y: rect.top + (hasOffsets ? step.offsetY : rect.height / 2),
-        });
+        const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+
+        const calcPoint = (rect) => {
+          const baseX = rect.left + (hasOffsets ? step.offsetX : rect.width / 2);
+          const baseY = rect.top + (hasOffsets ? step.offsetY : rect.height / 2);
+
+          // If the UI changed (responsive/layout), the recorded offsets can land outside the element.
+          // Clamp the point to the element's box to ensure we still hit it.
+          if (!hasOffsets) return { x: baseX, y: baseY };
+
+          const minX = rect.left + 1;
+          const maxX = rect.right - 1;
+          const minY = rect.top + 1;
+          const maxY = rect.bottom - 1;
+
+          const safeX = maxX >= minX ? clamp(baseX, minX, maxX) : rect.left + rect.width / 2;
+          const safeY = maxY >= minY ? clamp(baseY, minY, maxY) : rect.top + rect.height / 2;
+
+          return { x: safeX, y: safeY };
+        };
 
         let { x: clickX, y: clickY } = calcPoint(containerRect);
 
@@ -974,14 +990,21 @@ async function executeStep(step, settings) {
         }
 
         try {
-          actualClickTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          await new Promise(resolve => setTimeout(resolve, 100));
+          actualClickTarget.scrollIntoView({ behavior: 'auto', block: 'center' });
+          await new Promise(resolve => setTimeout(resolve, 80));
 
           // Recalculate after scroll (keep offsets only when clicking the original selector target)
           const newRect = actualClickTarget.getBoundingClientRect();
           if (actualClickTarget === clickElement) {
             ({ x: clickX, y: clickY } = calcPoint(newRect));
           } else {
+            clickX = newRect.left + newRect.width / 2;
+            clickY = newRect.top + newRect.height / 2;
+          }
+
+          // If the computed point no longer lands on the target (layout changes), fall back to center.
+          const elAtFinalPoint = document.elementFromPoint(clickX, clickY);
+          if (elAtFinalPoint && !actualClickTarget.contains(elAtFinalPoint)) {
             clickX = newRect.left + newRect.width / 2;
             clickY = newRect.top + newRect.height / 2;
           }
