@@ -892,11 +892,14 @@ async function executeStep(step, settings) {
         let forceSyntheticClick = false;
 
         // Menu toggles in sidebars are often nested short "::..." wrappers.
-        // Clicking the wrapper sometimes lands on a different element (overlay/layout), so for these
-        // cases prefer the nearest meaningful data-test ancestor (not starting with "::").
+        // But option-like items (months, weekdays, etc.) can also use "::..." and MUST be clicked directly.
+        // So only "lift" to a meaningful data-test ancestor when the element itself has no short visible text.
         if (isShortSelector) {
           const linkAncestor = clickElement.closest?.('a');
-          if (!linkAncestor) {
+          const text = (clickElement.textContent || '').trim();
+          const isOptionLikeText = text.length > 0 && text.length <= 32;
+
+          if (!linkAncestor && !isOptionLikeText) {
             const meaningfulAncestor = clickElement.closest?.('[data-test]:not([data-test^="::"])');
             if (meaningfulAncestor) {
               actualClickTarget = meaningfulAncestor;
