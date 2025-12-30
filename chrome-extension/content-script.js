@@ -882,7 +882,7 @@ async function executeStep(step, settings) {
         const isShortSelector = containerDataTest.startsWith('::');
         const hasMeaningfulDataTest = containerDataTest && !isShortSelector;
         const containerTag = clickElement.tagName?.toLowerCase();
-        const isNonInteractiveContainer = containerTag === 'div' || containerTag === 'span';
+        const isNonInteractiveContainer = containerTag === 'div' || containerTag === 'span' || containerTag === 'li';
         
         // For menu toggles and similar: if it's a div/span with data-test, click it directly
         // Don't try to find nested <a> or <button> inside
