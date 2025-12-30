@@ -110,22 +110,35 @@ async function handleDebuggerClick(tabId, x, y, clickCount) {
   };
   
   // Dispatch mouse events sequence for a real click
+  // Send mouseMoved first - some UIs rely on hover state before accepting a click.
+  await sendDebuggerCommand('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: Math.round(x),
+    y: Math.round(y),
+    button: 'none',
+    buttons: 0
+  });
+
+  await new Promise(r => setTimeout(r, 16));
+
   // mousePressed -> mouseReleased
   await sendDebuggerCommand('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x: Math.round(x),
     y: Math.round(y),
     button: 'left',
+    buttons: 1,
     clickCount: clickCount
   });
-  
-  await new Promise(r => setTimeout(r, 50));
-  
+
+  await new Promise(r => setTimeout(r, 24));
+
   await sendDebuggerCommand('Input.dispatchMouseEvent', {
     type: 'mouseReleased',
     x: Math.round(x),
     y: Math.round(y),
     button: 'left',
+    buttons: 0,
     clickCount: clickCount
   });
   
