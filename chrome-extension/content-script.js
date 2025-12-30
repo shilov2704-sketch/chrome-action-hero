@@ -857,14 +857,27 @@ async function executeStep(step, settings) {
         // This is critical for short data-test wrappers like "::009b2q4::1" (checkbox inside <a>)
         // and for any offset-based click.
         const containerDataTest = clickElement.getAttribute?.('data-test') || '';
-        const shouldTrustSelectorTarget = hasOffsets || containerDataTest.startsWith('::');
+        
+        // Trust selector target in these cases:
+        // 1. Has explicit offsets from recording
+        // 2. Is a short "::..." selector (specific child element)
+        // 3. Has a meaningful data-test attribute (not just "::...")
+        // 4. Is a div/span that might be a menu toggle (not an interactive element itself)
+        const isShortSelector = containerDataTest.startsWith('::');
+        const hasMeaningfulDataTest = containerDataTest && !isShortSelector;
+        const containerTag = clickElement.tagName?.toLowerCase();
+        const isNonInteractiveContainer = containerTag === 'div' || containerTag === 'span';
+        
+        // For menu toggles and similar: if it's a div/span with data-test, click it directly
+        // Don't try to find nested <a> or <button> inside
+        const shouldTrustSelectorTarget = hasOffsets || isShortSelector || (hasMeaningfulDataTest && isNonInteractiveContainer);
  
         let actualClickTarget = clickElement;
         let forceSyntheticClick = false;
 
         // Special case: short data-test wrappers ("::...") inside <a> often wrap a custom checkbox.
         // Clicking the wrapper can bubble to <a> and open the link, so click the checkbox element itself.
-        if (containerDataTest.startsWith('::')) {
+        if (isShortSelector) {
           const linkAncestor = clickElement.closest?.('a');
           if (linkAncestor) {
             const isCheckable = (el) => {
