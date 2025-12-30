@@ -1050,7 +1050,12 @@ async function executeStep(step, settings) {
 
             for (const pt of candidates) {
               const p = clampToViewport(pt.x, pt.y);
-              const el = document.elementFromPoint(p.x, p.y);
+              let el = null;
+              try {
+                el = document.elementFromPoint(p.x, p.y);
+              } catch (e) {
+                // ignore
+              }
               if (el && (el === target || target.contains(el))) {
                 return p;
               }
@@ -1059,14 +1064,45 @@ async function executeStep(step, settings) {
             return null;
           };
 
-          const picked = pickPointInsideTarget(newRect, actualClickTarget);
-          if (picked) {
-            clickX = picked.x;
-            clickY = picked.y;
+          const pickBestPoint = (rect) => {
+            const picked = pickPointInsideTarget(rect, actualClickTarget);
+            if (picked) return picked;
+            return clampToViewport(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          };
+
+          // Key fix for "first click doesn't work": often the UI is still animating/mounting and
+          // hit-testing lands on an overlay. Wait briefly until the point actually resolves to the target.
+          const ensureHitTestablePoint = async (target, timeoutMs = 900) => {
+            const started = Date.now();
+            while (Date.now() - started < timeoutMs) {
+              const rect = target.getBoundingClientRect();
+              const pt = pickBestPoint(rect);
+
+              let el = null;
+              try {
+                el = document.elementFromPoint(pt.x, pt.y);
+              } catch (e) {
+                // ignore
+              }
+
+              if (el && (el === target || target.contains(el))) {
+                return pt;
+              }
+
+              await new Promise((r) => setTimeout(r, 50));
+            }
+            return null;
+          };
+
+          const ensured = await ensureHitTestablePoint(actualClickTarget, 900);
+          if (ensured) {
+            clickX = ensured.x;
+            clickY = ensured.y;
           } else {
-            // Worst-case fallback to center.
-            clickX = newRect.left + newRect.width / 2;
-            clickY = newRect.top + newRect.height / 2;
+            console.warn('Hit-test did not resolve to target before click; proceeding anyway');
+            const pt = pickBestPoint(newRect);
+            clickX = pt.x;
+            clickY = pt.y;
           }
         } catch (e) {
           // ignore
