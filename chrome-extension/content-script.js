@@ -1075,25 +1075,93 @@ async function executeStep(step, settings) {
         // Use Chrome Debugger API for real isTrusted clicks
         // BUT skip debugger click for checkboxes inside <a> - use synthetic to prevent navigation
         const tabId = settings?.tabId;
-        console.log('Dispatching click at', clickX, clickY, 'on', actualClickTarget.tagName, actualClickTarget.getAttribute('data-test') || '', 'tabId:', tabId, 'forceSyntheticClick:', forceSyntheticClick);
+
+        // For short "::..." div/span targets (menu toggles), consider the click successful only if it causes a DOM change.
+        const shouldVerifyUiChange =
+          isShortSelector &&
+          isNonInteractiveContainer &&
+          !clickElement.closest?.('a');
+
+        const mutationScope = shouldVerifyUiChange
+          ? (clickElement.closest?.('[data-test]:not([data-test^="::"])') || clickElement.parentElement)
+          : null;
+
+        const waitForDomMutation = (scope, timeoutMs = 450) => {
+          if (!scope) return Promise.resolve(true);
+
+          return new Promise((resolve) => {
+            let done = false;
+            let obs;
+
+            const finish = (val) => {
+              if (done) return;
+              done = true;
+              try {
+                obs?.disconnect?.();
+              } catch (e) {
+                // ignore
+              }
+              resolve(val);
+            };
+
+            try {
+              obs = new MutationObserver(() => finish(true));
+              obs.observe(scope, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                characterData: true,
+              });
+            } catch (e) {
+              // If we can't observe, don't block the click.
+              return finish(true);
+            }
+
+            setTimeout(() => finish(false), timeoutMs);
+          });
+        };
+
+        console.log(
+          'Dispatching click at',
+          clickX,
+          clickY,
+          'on',
+          actualClickTarget.tagName,
+          actualClickTarget.getAttribute('data-test') || '',
+          'tabId:',
+          tabId,
+          'forceSyntheticClick:',
+          forceSyntheticClick
+        );
 
         let clickSucceeded = false;
 
-        if (tabId && !forceSyntheticClick) {
+        // First attempt: debugger click
+        let uiChangedFromDebugger = true;
+        const willAttemptDebuggerClick = Boolean(tabId && !forceSyntheticClick);
+        const dbgMutation =
+          shouldVerifyUiChange && willAttemptDebuggerClick
+            ? waitForDomMutation(mutationScope)
+            : null;
+
+        if (willAttemptDebuggerClick) {
           try {
             const response = await new Promise((resolve) => {
-              chrome.runtime.sendMessage({
-                action: 'debuggerClick',
-                tabId: tabId,
-                x: clickX,
-                y: clickY,
-                clickCount: 1
-              }, resolve);
+              chrome.runtime.sendMessage(
+                {
+                  action: 'debuggerClick',
+                  tabId: tabId,
+                  x: clickX,
+                  y: clickY,
+                  clickCount: 1,
+                },
+                resolve
+              );
             });
 
             if (response && response.success) {
               clickSucceeded = true;
-              console.log('Debugger click succeeded');
+              console.log('Debugger click dispatched');
             } else {
               console.warn('Debugger click failed:', response?.error);
             }
@@ -1101,11 +1169,24 @@ async function executeStep(step, settings) {
             console.warn('Debugger click error:', e);
           }
         }
-        
+
+        if (dbgMutation) {
+          uiChangedFromDebugger = await dbgMutation;
+        }
+
+        // If debugger click was "sent" but did not change the UI, retry with synthetic pointer/mouse sequence.
+        if (shouldVerifyUiChange && clickSucceeded && !uiChangedFromDebugger) {
+          console.warn('Debugger click produced no UI change; retrying with synthetic click sequence');
+          clickSucceeded = false;
+        }
+
         // Fallback to synthetic click if debugger click failed or tabId not available
         // OR forced synthetic click for checkbox inside <a>
         if (!clickSucceeded || forceSyntheticClick) {
           console.log('Using synthetic click', forceSyntheticClick ? '(forced for checkbox inside <a>)' : '(fallback)');
+
+          let uiChangedFromSynthetic = true;
+          const synMutation = shouldVerifyUiChange ? waitForDomMutation(mutationScope) : null;
           
           // For checkbox inside <a>, add click handler to prevent link navigation
           const linkAncestor = forceSyntheticClick ? actualClickTarget.closest?.('a') : null;
@@ -1159,6 +1240,14 @@ async function executeStep(step, settings) {
           actualClickTarget.dispatchEvent(new MouseEvent('click', {
             bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
           }));
+
+          if (synMutation) {
+            uiChangedFromSynthetic = await synMutation;
+          }
+
+          if (shouldVerifyUiChange && !uiChangedFromSynthetic) {
+            throw new Error('Клик не изменил UI (меню не раскрылось)');
+          }
           
           // For checkboxes/radios, ensure change event fires
           if (tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio')) {
