@@ -32,7 +32,7 @@
               <button class="import-option" id="importFolderOption">📁 Папка (ZIP)</button>
             </div>
           </div>
-          <input type="file" id="importFileInput" accept=".json" style="display: none;" multiple>
+          <input type="file" id="importFileInput" accept=".json,.JSON,application/json" style="display: none;" multiple>
           <input type="file" id="importFolderInput" accept=".zip,.ZIP,application/zip,application/x-zip-compressed" style="display: none;">
           <button id="createFolderBtn" class="btn btn-secondary">
             <span class="icon">📁</span> Создать папку
@@ -279,7 +279,7 @@
     </div>
   </div>
 
-  <script src="lib/jszip.min.js"></script>
+  <script src="lib/fflate.min.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>

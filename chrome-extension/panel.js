@@ -1061,14 +1061,19 @@ async function exportRecording() {
   const exportRecordingData = prepareRecordingForExport(state.currentRecording);
   const dataStr = JSON.stringify(exportRecordingData, null, 2);
   const blob = new Blob([dataStr], { type: 'application/json' });
+
   const url = URL.createObjectURL(blob);
-  
   const a = document.createElement('a');
   a.href = url;
   a.download = `${state.currentRecording.title}.json`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  
-  URL.revokeObjectURL(url);
+
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 1000);
 }
 
 async function deleteCurrentRecording() {
@@ -1254,32 +1259,34 @@ function scrollToStepInCode(stepIndex, previewElementId = 'codePreview') {
 async function handleImportFiles(event) {
   const files = event.target.files;
   if (!files || files.length === 0) return;
-  
+
   let importedCount = 0;
   let errorCount = 0;
-  
+
   for (const file of files) {
     try {
       const text = await file.text();
       const recording = JSON.parse(text);
-      
+
+      // Support both formats: {steps} and {steps + checkSteps}
+      if (!recording.steps) recording.steps = [];
+      if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+        if (!Array.isArray(recording.steps)) recording.steps = [];
+        recording.steps = [...recording.steps, ...recording.checkSteps];
+        delete recording.checkSteps;
+      }
+
       // Validate required fields
-      if (!recording.title || !recording.steps || !Array.isArray(recording.steps)) {
+      if (!recording.title || !Array.isArray(recording.steps)) {
         console.error('Invalid recording format:', file.name);
         errorCount++;
         continue;
       }
-      
-      // Merge checkSteps back into steps if present
-      if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
-        recording.steps = [...recording.steps, ...recording.checkSteps];
-        delete recording.checkSteps;
-      }
-      
+
       // Generate new ID and update timestamp
       recording.id = Date.now() + importedCount;
       recording.createdAt = recording.createdAt || new Date().toISOString();
-      
+
       state.recordings.push(recording);
       importedCount++;
     } catch (err) {
@@ -1287,18 +1294,22 @@ async function handleImportFiles(event) {
       errorCount++;
     }
   }
-  
+
   if (importedCount > 0) {
     await saveRecordings();
     renderRecordingsList();
   }
-  
+
   // Clear input for re-import
   event.target.value = '';
-  
+
+  if (importedCount === 0 && errorCount === 0) {
+    return;
+  }
+
   if (errorCount > 0) {
     alert(`Импортировано: ${importedCount}, ошибок: ${errorCount}`);
-  } else if (importedCount > 0) {
+  } else {
     alert(`Успешно импортировано: ${importedCount} записей`);
   }
 }
@@ -1485,67 +1496,90 @@ function clearSelection() {
 
 async function handleBulkExport() {
   if (state.selectedItems.length === 0) return;
-  
-  // Check if JSZip is loaded
-  if (typeof JSZip === 'undefined') {
-    alert('Подождите, библиотека JSZip загружается...');
-    return;
-  }
-  
+
   const selectedFolders = state.selectedItems.filter(s => s.type === 'folder');
   const selectedRecordings = state.selectedItems.filter(s => s.type === 'recording');
-  
+
+  // ZIP library is only needed for exporting folders
+  const zipLib = typeof fflate !== 'undefined' ? fflate : (typeof globalThis !== 'undefined' ? globalThis.fflate : null);
+  if (selectedFolders.length > 0 && !zipLib) {
+    alert('Не удалось загрузить библиотеку ZIP. Проверьте, что подключен lib/fflate.min.js');
+    return;
+  }
+
   // Export folders as zip
   for (const item of selectedFolders) {
     const folder = state.folders.find(f => f.id === item.id);
     if (!folder) continue;
-    
+
     const recordingsInFolder = state.recordings.filter(r => r.folderId === folder.id);
     await exportFolderAsZip(folder, recordingsInFolder);
   }
-  
+
   // Export individual recordings as JSON
   for (const item of selectedRecordings) {
     const recording = state.recordings.find(r => r.id === item.id);
     if (!recording) continue;
-    
+
     const exportData = prepareRecordingForExport(recording);
     const dataStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
+
     const url = URL.createObjectURL(blob);
-    
     const a = document.createElement('a');
     a.href = url;
     a.download = `${recording.title}.json`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
-    
-    URL.revokeObjectURL(url);
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 1000);
   }
-  
+
   clearSelection();
 }
 
 async function exportFolderAsZip(folder, recordings) {
-  // Create zip file even if empty
-  const zip = new JSZip();
-  
-  for (const recording of recordings) {
-    const exportData = prepareRecordingForExport(recording);
-    const dataStr = JSON.stringify(exportData, null, 2);
-    zip.file(`${recording.title}.json`, dataStr);
+  const zipLib = typeof fflate !== 'undefined' ? fflate : (typeof globalThis !== 'undefined' ? globalThis.fflate : null);
+  if (!zipLib) {
+    alert('Не удалось загрузить библиотеку ZIP. Проверьте, что подключен lib/fflate.min.js');
+    return;
   }
-  
-  const content = await zip.generateAsync({ type: 'blob' });
-  const url = URL.createObjectURL(content);
-  
+
+  const files = {};
+
+  // Create zip file even if empty
+  if (!recordings || recordings.length === 0) {
+    files['.keep'] = zipLib.strToU8('');
+  } else {
+    for (const recording of recordings) {
+      const exportData = prepareRecordingForExport(recording);
+      const dataStr = JSON.stringify(exportData, null, 2);
+      files[`${recording.title}.json`] = zipLib.strToU8(dataStr);
+    }
+  }
+
+  const zipData = await new Promise((resolve, reject) => {
+    zipLib.zip(files, { level: 6 }, (err, data) => (err ? reject(err) : resolve(data)));
+  });
+
+  const blob = new Blob([zipData], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+
   const a = document.createElement('a');
   a.href = url;
   a.download = `${folder.name}.zip`;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  
-  URL.revokeObjectURL(url);
+
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 1000);
 }
 
 async function handleBulkDelete() {
@@ -1583,70 +1617,77 @@ async function handleBulkDelete() {
 async function handleImportFolder(event) {
   const file = event.target.files[0];
   if (!file) return;
-  
-  // Check if JSZip is loaded
-  if (typeof JSZip === 'undefined') {
-    alert('Подождите, библиотека JSZip загружается...');
+
+  const zipLib = typeof fflate !== 'undefined' ? fflate : (typeof globalThis !== 'undefined' ? globalThis.fflate : null);
+  if (!zipLib) {
+    alert('Не удалось загрузить библиотеку ZIP. Проверьте, что подключен lib/fflate.min.js');
     event.target.value = '';
     return;
   }
-  
+
   try {
-    const zip = await JSZip.loadAsync(file);
+    const zipBytes = new Uint8Array(await file.arrayBuffer());
+    const entries = await new Promise((resolve, reject) => {
+      zipLib.unzip(zipBytes, (err, data) => (err ? reject(err) : resolve(data)));
+    });
+
     // Remove .zip extension (handle both .zip and .ZIP)
     const folderName = file.name.replace(/\.zip$/i, '');
-    
+
     // Create new folder
     const folder = {
       id: Date.now(),
       name: folderName,
       createdAt: new Date().toISOString()
     };
-    
+
     state.folders.push(folder);
-    
+
     let importedCount = 0;
-    
-    for (const [filename, zipEntry] of Object.entries(zip.files)) {
-      // Skip directories and non-JSON files
-      if (zipEntry.dir || !filename.toLowerCase().endsWith('.json')) continue;
-      
+
+    for (const [filename, bytes] of Object.entries(entries)) {
+      // Skip non-JSON files
+      if (!filename.toLowerCase().endsWith('.json')) continue;
+
       try {
-        const content = await zipEntry.async('string');
+        const content = zipLib.strFromU8(bytes);
         const recording = JSON.parse(content);
-        
-        if (!recording.title || !recording.steps || !Array.isArray(recording.steps)) {
-          console.warn('Skipping invalid recording file:', filename);
-          continue;
-        }
-        
-        // Merge checkSteps back into steps if present
+
+        // Support both formats: {steps} and {steps + checkSteps}
+        if (!recording.steps) recording.steps = [];
         if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+          if (!Array.isArray(recording.steps)) recording.steps = [];
           recording.steps = [...recording.steps, ...recording.checkSteps];
           delete recording.checkSteps;
         }
-        
+
+        if (!recording.title || !Array.isArray(recording.steps)) {
+          console.warn('Skipping invalid recording file:', filename);
+          continue;
+        }
+
         recording.id = Date.now() + importedCount;
         recording.folderId = folder.id;
         recording.createdAt = recording.createdAt || new Date().toISOString();
-        
+
         state.recordings.push(recording);
         importedCount++;
       } catch (err) {
         console.error('Error importing file from ZIP:', filename, err);
       }
     }
-    
+
     await saveRecordings();
     await saveFolders();
     renderRecordingsList();
-    
+
     alert(`Папка "${folderName}" импортирована. Записей: ${importedCount}`);
   } catch (err) {
     console.error('Error importing folder:', err);
-    alert('Ошибка при импорте ZIP архива: ' + err.message);
+    const message = err && err.message ? err.message : String(err);
+    alert('Ошибка при импорте ZIP архива: ' + message);
   }
-  
+
   event.target.value = '';
 }
 
