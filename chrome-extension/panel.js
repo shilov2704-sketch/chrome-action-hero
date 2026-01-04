@@ -1841,7 +1841,4 @@ function selectAll() {
   renderRecordingsList();
 }
 
-// Load JSZip library
-const script = document.createElement('script');
-script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-document.head.appendChild(script);
+// JSZip is now loaded via script tag in panel.html
