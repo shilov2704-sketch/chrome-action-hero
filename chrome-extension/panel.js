@@ -1486,6 +1486,12 @@ function clearSelection() {
 async function handleBulkExport() {
   if (state.selectedItems.length === 0) return;
   
+  // Check if JSZip is loaded
+  if (typeof JSZip === 'undefined') {
+    alert('Подождите, библиотека JSZip загружается...');
+    return;
+  }
+  
   const selectedFolders = state.selectedItems.filter(s => s.type === 'folder');
   const selectedRecordings = state.selectedItems.filter(s => s.type === 'recording');
   
@@ -1495,8 +1501,6 @@ async function handleBulkExport() {
     if (!folder) continue;
     
     const recordingsInFolder = state.recordings.filter(r => r.folderId === folder.id);
-    if (recordingsInFolder.length === 0) continue;
-    
     await exportFolderAsZip(folder, recordingsInFolder);
   }
   
@@ -1522,7 +1526,7 @@ async function handleBulkExport() {
 }
 
 async function exportFolderAsZip(folder, recordings) {
-  // Create zip file
+  // Create zip file even if empty
   const zip = new JSZip();
   
   for (const recording of recordings) {
@@ -1537,7 +1541,9 @@ async function exportFolderAsZip(folder, recordings) {
   const a = document.createElement('a');
   a.href = url;
   a.download = `${folder.name}.zip`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   
   URL.revokeObjectURL(url);
 }
@@ -1578,9 +1584,17 @@ async function handleImportFolder(event) {
   const file = event.target.files[0];
   if (!file) return;
   
+  // Check if JSZip is loaded
+  if (typeof JSZip === 'undefined') {
+    alert('Подождите, библиотека JSZip загружается...');
+    event.target.value = '';
+    return;
+  }
+  
   try {
     const zip = await JSZip.loadAsync(file);
-    const folderName = file.name.replace('.zip', '');
+    // Remove .zip extension (handle both .zip and .ZIP)
+    const folderName = file.name.replace(/\.zip$/i, '');
     
     // Create new folder
     const folder = {
@@ -1594,13 +1608,15 @@ async function handleImportFolder(event) {
     let importedCount = 0;
     
     for (const [filename, zipEntry] of Object.entries(zip.files)) {
-      if (zipEntry.dir || !filename.endsWith('.json')) continue;
+      // Skip directories and non-JSON files
+      if (zipEntry.dir || !filename.toLowerCase().endsWith('.json')) continue;
       
       try {
         const content = await zipEntry.async('string');
         const recording = JSON.parse(content);
         
         if (!recording.title || !recording.steps || !Array.isArray(recording.steps)) {
+          console.warn('Skipping invalid recording file:', filename);
           continue;
         }
         
@@ -1628,7 +1644,7 @@ async function handleImportFolder(event) {
     alert(`Папка "${folderName}" импортирована. Записей: ${importedCount}`);
   } catch (err) {
     console.error('Error importing folder:', err);
-    alert('Ошибка при импорте ZIP архива');
+    alert('Ошибка при импорте ZIP архива: ' + err.message);
   }
   
   event.target.value = '';
