@@ -996,22 +996,34 @@ function renderPlaybackStepDetails(step) {
 }
 
 function formatWaitForElementStep(step) {
-  // Extract the primary xpath selector
+  // Extract the primary xpath selector and normalize it to start with "//"
   let selector = '';
   if (step.selectors && step.selectors.length > 0) {
     for (const selectorGroup of step.selectors) {
-      if (selectorGroup[0] && selectorGroup[0].startsWith('xpath//')) {
-        // Handle xpath// prefix (keeps the //)
-        selector = selectorGroup[0].replace('xpath/', '');
-        break;
-      } else if (selectorGroup[0] && selectorGroup[0].startsWith('xpath/')) {
-        // Handle xpath/ prefix (add extra /)
-        selector = '/' + selectorGroup[0].replace('xpath/', '');
+      const raw = selectorGroup && selectorGroup[0];
+      if (typeof raw === 'string' && raw.startsWith('xpath')) {
+        // Common shapes:
+        // - "xpath//*[@..."  -> "//*[@..." (already ok)
+        // - "xpath/*[@..."   -> "/*[@..."  (needs one more leading '/')
+        // - "xpath//..."     -> "//..."    (already ok)
+        selector = raw.slice('xpath'.length);
+
+        // Normalize to always start with "//" for readability/consistency in exported checks
+        if (selector.startsWith('/') && !selector.startsWith('//')) {
+          selector = '/' + selector;
+        } else if (!selector.startsWith('/')) {
+          selector = '//' + selector;
+        }
         break;
       }
     }
   }
   
+  // Get the expected text (from value or text field)
+  const expectedText = step.value || step.text || '';
+  
+  return `expected element ${selector} contain text - ${expectedText}`;
+}
   // Get the expected text (from value or text field)
   const expectedText = step.value || step.text || '';
   
