@@ -995,12 +995,32 @@ function renderPlaybackStepDetails(step) {
   renderStepDetails(step, true);
 }
 
+function formatWaitForElementStep(step) {
+  // Extract the primary xpath selector
+  let selector = '';
+  if (step.selectors && step.selectors.length > 0) {
+    for (const selectorGroup of step.selectors) {
+      if (selectorGroup[0] && selectorGroup[0].startsWith('xpath/')) {
+        selector = selectorGroup[0].replace('xpath/', '');
+        break;
+      }
+    }
+  }
+  
+  // Get the expected text (from value or text field)
+  const expectedText = step.value || step.text || '';
+  
+  return `expected element ${selector} contain text - ${expectedText}`;
+}
+
 function prepareRecordingForExport(recording) {
   if (!recording) return null;
 
   const { steps = [], ...rest } = recording;
   const normalSteps = steps.filter(step => step.type !== 'waitForElement');
-  const checkSteps = steps.filter(step => step.type === 'waitForElement');
+  const checkSteps = steps
+    .filter(step => step.type === 'waitForElement')
+    .map(step => formatWaitForElementStep(step));
 
   const result = {
     ...rest,
