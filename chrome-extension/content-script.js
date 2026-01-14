@@ -1163,10 +1163,30 @@ async function executeStep(step, settings) {
         const tabId = settings?.tabId;
 
         // For short "::..." div/span targets (menu toggles), consider the click successful only if it causes a DOM change.
+        // BUT: skip this check for inputs/selects that open modal dialogs instead of inline dropdowns
+        const actualTargetTag = actualClickTarget.tagName?.toLowerCase();
+        const actualTargetRole = actualClickTarget.getAttribute?.('role');
+        const isInputLikeElement = 
+          actualTargetTag === 'input' || 
+          actualTargetTag === 'select' || 
+          actualTargetTag === 'textarea' ||
+          actualTargetRole === 'combobox' ||
+          actualTargetRole === 'textbox' ||
+          actualTargetRole === 'listbox' ||
+          actualClickTarget.hasAttribute?.('contenteditable');
+        
+        // Also check if the clicked element or its container looks like a form field
+        // (these typically open modal pickers, not inline dropdown menus)
+        const isFormFieldContainer = 
+          clickElement.querySelector?.('input, select, textarea, [role="combobox"], [role="textbox"]') ||
+          clickElement.closest?.('label, .form-field, .input-field, [class*="input"], [class*="field"]');
+        
         const shouldVerifyUiChange =
           isShortSelector &&
           isNonInteractiveContainer &&
-          !clickElement.closest?.('a');
+          !clickElement.closest?.('a') &&
+          !isInputLikeElement &&
+          !isFormFieldContainer;
 
         const mutationScope = shouldVerifyUiChange
           ? (clickElement.closest?.('[data-test]:not([data-test^="::"])') || clickElement.parentElement)
