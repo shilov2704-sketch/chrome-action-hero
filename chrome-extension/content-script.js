@@ -1191,7 +1191,8 @@ async function executeStep(step, settings) {
                 dataTest.toLowerCase().includes('picker') ||
                 dataTest.toLowerCase().includes('select') ||
                 dataTest.toLowerCase().includes('add') ||
-                dataTest.toLowerCase().includes('list')) {
+                dataTest.toLowerCase().includes('list') ||
+                dataTest.toLowerCase().includes('cell')) {
               return true;
             }
             el = el.parentElement;
