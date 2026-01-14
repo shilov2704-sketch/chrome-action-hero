@@ -1190,7 +1190,8 @@ async function executeStep(step, settings) {
             if (dataTest.toLowerCase().includes('button') || 
                 dataTest.toLowerCase().includes('picker') ||
                 dataTest.toLowerCase().includes('select') ||
-                dataTest.toLowerCase().includes('add')) {
+                dataTest.toLowerCase().includes('add') ||
+                dataTest.toLowerCase().includes('list')) {
               return true;
             }
             el = el.parentElement;
