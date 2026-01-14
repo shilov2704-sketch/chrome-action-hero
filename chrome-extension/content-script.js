@@ -1492,23 +1492,100 @@ async function executeStep(step, settings) {
       document.dispatchEvent(new KeyboardEvent('keyup', { key: step.key }));
       break;
 
-    case 'waitForElement':
-      const element = await waitForElement(step.selectors, settings.timeout || 5000);
-      // If value assertion is present, verify it
-      if (element && step.value !== undefined) {
-        const actualValue = element.value || element.textContent;
-        if (actualValue !== step.value) {
-          throw new Error(`Value assertion failed. Expected: "${step.value}", Actual: "${actualValue}"`);
+    case 'waitForElement': {
+      const effectiveTimeout = Math.max(
+        Number.isFinite(settings?.timeout) ? settings.timeout : 0,
+        Number.isFinite(step?.timeout) ? step.timeout : 0,
+        5000
+      );
+
+      const startTime = Date.now();
+      let lastValue = '';
+      let lastText = '';
+      let satisfied = false;
+
+      while (Date.now() - startTime < effectiveTimeout) {
+        const el = findElement(step.selectors);
+
+        if (!el) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          continue;
         }
-      }
-      // If text assertion is present, verify it
-      if (element && step.text !== undefined) {
-        const actualText = element.textContent?.trim();
-        if (actualText !== step.text) {
-          throw new Error(`Text assertion failed. Expected: "${step.text}", Actual: "${actualText}"`);
+
+        // Visibility check (optional)
+        if (step.visible) {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const opacity = Number.parseFloat(style.opacity || '1');
+          const isVisible =
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            opacity > 0 &&
+            rect.width > 0 &&
+            rect.height > 0;
+
+          if (!isVisible) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            continue;
+          }
         }
+
+        let assertionsPass = true;
+
+        // If value assertion is present, verify it (but keep waiting until timeout)
+        if (step.value !== undefined) {
+          const expected = String(step.value);
+          const target = resolveEditableElement(el);
+          const actual = String(
+            target?.value ??
+              target?.getAttribute?.('value') ??
+              target?.textContent ??
+              ''
+          );
+
+          lastValue = actual;
+          if (actual !== expected) {
+            assertionsPass = false;
+          }
+        }
+
+        // If text assertion is present, verify it (but keep waiting until timeout)
+        if (assertionsPass && step.text !== undefined) {
+          const expectedText = String(step.text);
+          const actualText = (el.textContent ?? '').trim();
+
+          lastText = actualText;
+          if (actualText !== expectedText) {
+            assertionsPass = false;
+          }
+        }
+
+        if (assertionsPass) {
+          satisfied = true;
+          break;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-      break;
+
+      if (satisfied) {
+        break;
+      }
+
+      // Timeout reached — throw the most relevant error
+      if (step.value !== undefined) {
+        throw new Error(
+          `Value assertion failed. Expected: "${step.value}", Actual: "${lastValue}"`
+        );
+      }
+      if (step.text !== undefined) {
+        throw new Error(
+          `Text assertion failed. Expected: "${step.text}", Actual: "${lastText}"`
+        );
+      }
+      throw new Error('Element not found within timeout');
+    }
+
   }
 }
 
