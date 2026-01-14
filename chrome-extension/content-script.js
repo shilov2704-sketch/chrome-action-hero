@@ -1181,12 +1181,30 @@ async function executeStep(step, settings) {
           clickElement.querySelector?.('input, select, textarea, [role="combobox"], [role="textbox"]') ||
           clickElement.closest?.('label, .form-field, .input-field, [class*="input"], [class*="field"]');
         
+        // Check if element or its parent has a data-test containing "Button" - these are action buttons
+        // that open modals or perform actions, not dropdown menu toggles
+        const hasButtonDataTest = (() => {
+          let el = clickElement;
+          while (el && el !== document.body) {
+            const dataTest = el.getAttribute?.('data-test') || '';
+            if (dataTest.toLowerCase().includes('button') || 
+                dataTest.toLowerCase().includes('picker') ||
+                dataTest.toLowerCase().includes('select') ||
+                dataTest.toLowerCase().includes('add')) {
+              return true;
+            }
+            el = el.parentElement;
+          }
+          return false;
+        })();
+        
         const shouldVerifyUiChange =
           isShortSelector &&
           isNonInteractiveContainer &&
           !clickElement.closest?.('a') &&
           !isInputLikeElement &&
-          !isFormFieldContainer;
+          !isFormFieldContainer &&
+          !hasButtonDataTest;
 
         const mutationScope = shouldVerifyUiChange
           ? (clickElement.closest?.('[data-test]:not([data-test^="::"])') || clickElement.parentElement)
