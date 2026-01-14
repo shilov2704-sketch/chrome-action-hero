@@ -1000,8 +1000,13 @@ function formatWaitForElementStep(step) {
   let selector = '';
   if (step.selectors && step.selectors.length > 0) {
     for (const selectorGroup of step.selectors) {
-      if (selectorGroup[0] && selectorGroup[0].startsWith('xpath/')) {
+      if (selectorGroup[0] && selectorGroup[0].startsWith('xpath//')) {
+        // Handle xpath// prefix (keeps the //)
         selector = selectorGroup[0].replace('xpath/', '');
+        break;
+      } else if (selectorGroup[0] && selectorGroup[0].startsWith('xpath/')) {
+        // Handle xpath/ prefix (add extra /)
+        selector = '/' + selectorGroup[0].replace('xpath/', '');
         break;
       }
     }
