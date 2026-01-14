@@ -1024,11 +1024,6 @@ function formatWaitForElementStep(step) {
   
   return `expected element ${selector} contain text - ${expectedText}`;
 }
-  // Get the expected text (from value or text field)
-  const expectedText = step.value || step.text || '';
-  
-  return `expected element ${selector} contain text - ${expectedText}`;
-}
 
 function prepareRecordingForExport(recording) {
   if (!recording) return null;
