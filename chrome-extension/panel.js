@@ -1018,13 +1018,32 @@ function prepareRecordingForExport(recording) {
 
   const { steps = [], ...rest } = recording;
   
-  // Map over original steps, formatting waitForElement in place to preserve order
-  const processedSteps = steps.map(step => {
+  // Process steps: group consecutive waitForElement into checkSteps arrays
+  // while preserving the chronological order
+  const processedSteps = [];
+  let currentCheckSteps = [];
+  
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    
     if (step.type === 'waitForElement') {
-      return formatWaitForElementStep(step);
+      // Add to current checkSteps group
+      currentCheckSteps.push(formatWaitForElementStep(step));
+    } else {
+      // If we have accumulated checkSteps, flush them first
+      if (currentCheckSteps.length > 0) {
+        processedSteps.push({ checkSteps: currentCheckSteps });
+        currentCheckSteps = [];
+      }
+      // Add the regular step
+      processedSteps.push(step);
     }
-    return step;
-  });
+  }
+  
+  // Don't forget any remaining checkSteps at the end
+  if (currentCheckSteps.length > 0) {
+    processedSteps.push({ checkSteps: currentCheckSteps });
+  }
 
   const result = {
     ...rest,
