@@ -1017,19 +1017,19 @@ function prepareRecordingForExport(recording) {
   if (!recording) return null;
 
   const { steps = [], ...rest } = recording;
-  const normalSteps = steps.filter(step => step.type !== 'waitForElement');
-  const checkSteps = steps
-    .filter(step => step.type === 'waitForElement')
-    .map(step => formatWaitForElementStep(step));
+  
+  // Map over original steps, formatting waitForElement in place to preserve order
+  const processedSteps = steps.map(step => {
+    if (step.type === 'waitForElement') {
+      return formatWaitForElementStep(step);
+    }
+    return step;
+  });
 
   const result = {
     ...rest,
-    steps: normalSteps
+    steps: processedSteps
   };
-
-  if (checkSteps.length > 0) {
-    result.checkSteps = checkSteps;
-  }
 
   return result;
 }
