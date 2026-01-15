@@ -168,24 +168,38 @@ function initializeEventListeners() {
     if (message.action === 'elementPicked') {
       // Handle changing locator for existing step
       if (state.isChangingLocator && state.changingLocatorStepIndex !== null) {
-        const step = state.currentRecording.steps[state.changingLocatorStepIndex];
-        if (step) {
-          step.selectors = message.selectors;
+        const stepIndex = state.changingLocatorStepIndex;
+        const oldStep = state.currentRecording.steps[stepIndex];
+        if (oldStep) {
+          // Create a new step object to ensure proper update
+          const updatedStep = {
+            ...oldStep,
+            selectors: message.selectors
+          };
           if (message.name) {
-            step.name = message.name;
+            updatedStep.name = message.name;
           }
-          if (message.value) {
-            step.value = message.value;
+          if (message.value !== undefined) {
+            updatedStep.value = message.value;
           }
-          if (message.text) {
-            step.text = message.text;
+          if (message.text !== undefined) {
+            updatedStep.text = message.text;
           }
           
-          // Save changes
+          // Replace step in array with new object
+          state.currentRecording.steps[stepIndex] = updatedStep;
+          
+          // Save changes for existing recordings (not during active recording)
           if (!state.isRecording) {
             const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
             if (recordingIndex !== -1) {
-              state.recordings[recordingIndex] = state.currentRecording;
+              // Create a fresh copy of the recording to ensure proper save
+              const updatedRecording = {
+                ...state.currentRecording,
+                steps: [...state.currentRecording.steps]
+              };
+              state.recordings[recordingIndex] = updatedRecording;
+              state.currentRecording = updatedRecording;
             }
             saveRecordings();
           }
@@ -195,14 +209,14 @@ function initializeEventListeners() {
             renderPlaybackView();
             // Re-select the step to show updated details
             setTimeout(() => {
-              const stepItem = document.querySelector(`[data-step-id="step-${state.changingLocatorStepIndex}"]`);
+              const stepItem = document.querySelector(`[data-step-id="step-${stepIndex}"]`);
               if (stepItem) stepItem.click();
             }, 100);
           } else {
             renderStepsList();
             updateCodePreview();
             // Re-select the step
-            setTimeout(() => selectStep(state.changingLocatorStepIndex), 100);
+            setTimeout(() => selectStep(stepIndex), 100);
           }
         }
         state.isChangingLocator = false;
