@@ -179,11 +179,29 @@ function initializeEventListeners() {
           if (message.name) {
             updatedStep.name = message.name;
           }
-          if (message.value !== undefined) {
-            updatedStep.value = message.value;
-          }
-          if (message.text !== undefined) {
-            updatedStep.text = message.text;
+          
+          // For waitForElement steps, update value/text from the new element
+          // For other steps, only update if value/text is meaningful (not null)
+          if (oldStep.type === 'waitForElement') {
+            // For waitForElement: take new text from picked element, keep value only if input
+            if (message.text) {
+              updatedStep.text = message.text;
+            }
+            // Only update value if new element has actual value (is input/textarea)
+            if (message.value !== null && message.value !== undefined && message.value !== '') {
+              updatedStep.value = message.value;
+            } else {
+              // Remove value assertion if new element is not an input
+              delete updatedStep.value;
+            }
+          } else {
+            // For other step types (click, change, etc.)
+            if (message.value !== undefined && message.value !== null) {
+              updatedStep.value = message.value;
+            }
+            if (message.text !== undefined && message.text !== null) {
+              updatedStep.text = message.text;
+            }
           }
           
           // Replace step in array with new object
