@@ -908,7 +908,8 @@ body {
 }
 
 .btn-copy-xpath,
-.btn-save-xpath {
+.btn-save-xpath,
+.btn-change-locator {
   flex: 1;
 }
 
@@ -932,6 +933,16 @@ body {
 
 .btn-save-xpath:hover {
   background: #2d9249;
+}
+
+.btn-change-locator {
+  background: #ff9800;
+  color: white;
+  border: none;
+}
+
+.btn-change-locator:hover {
+  background: #f57c00;
 }
 
 /* Bulk Actions Bar */
