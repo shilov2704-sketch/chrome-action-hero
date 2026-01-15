@@ -8,6 +8,8 @@ const state = {
   isRecording: false,
   isContinuingRecording: false,
   isAddingAssertion: false,
+  isChangingLocator: false,
+  changingLocatorStepIndex: null,
   selectedStep: null,
   selectedSelectors: ['css', 'xpath'],
   replaySettings: {
@@ -23,7 +25,9 @@ const state = {
   folderPlayResults: {}, // {recordingId: 'success' | 'error'}
   folderStepResults: {}, // {recordingId: {stepIndex: 'success' | 'error'}}
   currentPlayingRecordingId: null,
-  folderPlaybackCompleted: false
+  folderPlaybackCompleted: false,
+  playbackStepResults: {}, // For single recording playback {stepIndex: 'success' | 'error'}
+  playbackCompleted: false
 };
 
 // Initialize
@@ -161,44 +165,128 @@ function initializeEventListeners() {
   
   // Listen for element picked and replay status
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'elementPicked' && state.isAddingAssertion) {
-      // Add the picked element to the last waitForElement step
-      const lastStep = state.currentRecording.steps[state.currentRecording.steps.length - 1];
-      if (lastStep && lastStep.type === 'waitForElement') {
-        lastStep.selectors = message.selectors;
-        if (message.name) {
-          lastStep.name = message.name;
+    if (message.action === 'elementPicked') {
+      // Handle changing locator for existing step
+      if (state.isChangingLocator && state.changingLocatorStepIndex !== null) {
+        const step = state.currentRecording.steps[state.changingLocatorStepIndex];
+        if (step) {
+          step.selectors = message.selectors;
+          if (message.name) {
+            step.name = message.name;
+          }
+          if (message.value) {
+            step.value = message.value;
+          }
+          if (message.text) {
+            step.text = message.text;
+          }
+          
+          // Save changes
+          if (!state.isRecording) {
+            const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+            if (recordingIndex !== -1) {
+              state.recordings[recordingIndex] = state.currentRecording;
+            }
+            saveRecordings();
+          }
+          
+          // Update UI
+          if (state.currentView === 'playback') {
+            renderPlaybackView();
+            // Re-select the step to show updated details
+            setTimeout(() => {
+              const stepItem = document.querySelector(`[data-step-id="step-${state.changingLocatorStepIndex}"]`);
+              if (stepItem) stepItem.click();
+            }, 100);
+          } else {
+            renderStepsList();
+            updateCodePreview();
+            // Re-select the step
+            setTimeout(() => selectStep(state.changingLocatorStepIndex), 100);
+          }
         }
-        // Add value assertion if element has a value
-        if (message.value) {
-          lastStep.value = message.value;
-        }
-        // Add text assertion if element has text
-        if (message.text) {
-          lastStep.text = message.text;
-        }
-        renderStepsList();
-        updateCodePreview();
+        state.isChangingLocator = false;
+        state.changingLocatorStepIndex = null;
+        return;
       }
-      state.isAddingAssertion = false;
-      // Re-enable the Add Assertion button
-      const addAssertionBtn = document.getElementById('addAssertionBtn');
-      if (addAssertionBtn) {
-        addAssertionBtn.disabled = false;
+      
+      // Handle adding assertion
+      if (state.isAddingAssertion) {
+        // Add the picked element to the last waitForElement step
+        const lastStep = state.currentRecording.steps[state.currentRecording.steps.length - 1];
+        if (lastStep && lastStep.type === 'waitForElement') {
+          lastStep.selectors = message.selectors;
+          if (message.name) {
+            lastStep.name = message.name;
+          }
+          // Add value assertion if element has a value
+          if (message.value) {
+            lastStep.value = message.value;
+          }
+          // Add text assertion if element has text
+          if (message.text) {
+            lastStep.text = message.text;
+          }
+          
+          if (state.currentView === 'playback') {
+            renderPlaybackView();
+            // Save changes for playback view
+            const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+            if (recordingIndex !== -1) {
+              state.recordings[recordingIndex] = state.currentRecording;
+            }
+            saveRecordings();
+          } else {
+            renderStepsList();
+            updateCodePreview();
+          }
+        }
+        state.isAddingAssertion = false;
+        // Re-enable the Add Assertion button
+        const addAssertionBtn = document.getElementById('addAssertionBtn');
+        if (addAssertionBtn) {
+          addAssertionBtn.disabled = false;
+        }
+        const playbackAddAssertionBtn = document.getElementById('playbackAddAssertionBtn');
+        if (playbackAddAssertionBtn) {
+          playbackAddAssertionBtn.disabled = false;
+        }
       }
     }
     
     // Handle replay step status updates
     if (message.action === 'replayStepStatus') {
       updateStepStatus(message.stepIndex, message.status, message.error);
+      // Track step results for playback view
+      if (state.currentRecording && !state.isPlayingFolder) {
+        const stepIndex = message.stepIndex !== undefined ? message.stepIndex : (message.actualIndex !== undefined ? message.actualIndex : null);
+        if (stepIndex !== null) {
+          if (message.status === 'success') {
+            state.playbackStepResults[stepIndex] = 'success';
+          } else if (message.status === 'error') {
+            state.playbackStepResults[stepIndex] = 'error';
+          }
+        }
+      }
     }
     
     // Handle replay stopped
     if (message.action === 'replayStopped' || message.action === 'replayCompleted') {
       document.getElementById('replayBtn').style.display = 'inline-flex';
       document.getElementById('stopReplayBtn').style.display = 'none';
+      // Show reset button after playback completes
+      if (!state.isPlayingFolder) {
+        state.playbackCompleted = true;
+        updatePlaybackResetButton();
+      }
     }
   });
+
+  // Reset playback results button
+  document.getElementById('resetPlaybackResultsBtn').addEventListener('click', resetPlaybackResults);
+  
+  // Playback view Add Assertion button
+  document.getElementById('playbackAddAssertionBtn').addEventListener('click', addAssertionInPlayback);
 
   // Replay settings
   document.getElementById('throttling').addEventListener('change', (e) => {
@@ -230,6 +318,10 @@ function initializeEventListeners() {
     const timeout = parseInt(document.getElementById('replayTimeout').value) || 5000;
     // Update replay settings with timeout
     state.replaySettings.timeout = timeout;
+    
+    // Clear previous results before starting new replay
+    resetPlaybackResults(true); // silent reset
+    
     replayRecording(speed);
     
     // Show Stop Replay button, hide Replay button
@@ -462,6 +554,71 @@ async function addAssertion() {
   
   // Activate element picker
   await activateElementPicker();
+}
+
+// Add Assertion in Playback view
+async function addAssertionInPlayback() {
+  if (!state.currentRecording) return;
+  
+  // Disable the button while picking element
+  const playbackAddAssertionBtn = document.getElementById('playbackAddAssertionBtn');
+  if (playbackAddAssertionBtn) {
+    playbackAddAssertionBtn.disabled = true;
+  }
+  
+  const assertion = {
+    type: 'waitForElement',
+    selectors: [],
+    visible: true,
+    timeout: 5000,
+    target: 'main'
+  };
+
+  state.currentRecording.steps.push(assertion);
+  state.isAddingAssertion = true;
+  renderPlaybackView();
+  
+  // Activate element picker
+  await activateElementPicker();
+}
+
+// Start changing locator for a step
+async function startChangeLocator(stepIndex) {
+  if (!state.currentRecording || stepIndex === null || stepIndex === undefined) return;
+  
+  state.isChangingLocator = true;
+  state.changingLocatorStepIndex = stepIndex;
+  
+  // Activate element picker
+  await activateElementPicker();
+}
+
+// Reset playback results
+function resetPlaybackResults(silent = false) {
+  state.playbackStepResults = {};
+  state.playbackCompleted = false;
+  
+  // Clear step status classes from UI
+  document.querySelectorAll('.step-item').forEach(item => {
+    item.classList.remove('step-success', 'step-error', 'step-executing');
+    item.title = '';
+  });
+  
+  // Hide reset button
+  updatePlaybackResetButton();
+  
+  if (!silent && state.currentRecording) {
+    renderPlaybackView();
+  }
+}
+
+// Update playback reset button visibility
+function updatePlaybackResetButton() {
+  const resetBtn = document.getElementById('resetPlaybackResultsBtn');
+  if (resetBtn) {
+    const hasResults = Object.keys(state.playbackStepResults).length > 0;
+    resetBtn.style.display = (state.playbackCompleted || hasResults) ? 'inline-flex' : 'none';
+  }
 }
 
 // Switch Tab
@@ -762,14 +919,17 @@ function selectStep(index) {
   } else {
     // Show step details
     const step = state.currentRecording.steps[index];
-    renderStepDetails(step);
+    renderStepDetails(step, false, index);
   }
 }
 
-function renderStepDetails(step, isPlayback = false) {
+function renderStepDetails(step, isPlayback = false, stepIndex = null) {
   const containerId = isPlayback ? 'playbackStepDetails' : 'stepDetails';
   const container = document.getElementById(containerId);
   if (!container) return;
+  
+  // Use selected step index if not provided
+  const currentStepIndex = stepIndex !== null ? stepIndex : state.selectedStep;
   
   // Find XPath selector if exists
   let xpathSelector = '';
@@ -816,9 +976,12 @@ function renderStepDetails(step, isPlayback = false) {
     `;
   }
   
-  // XPath edit section
+  // XPath edit section with change locator button
   let xpathEditHTML = '';
-  if (xpathSelector) {
+  const hasSelectors = step.selectors && step.selectors.length > 0;
+  const canChangeLocator = step.type === 'click' || step.type === 'change' || step.type === 'waitForElement' || step.type === 'keyDown' || step.type === 'keyUp';
+  
+  if (xpathSelector || canChangeLocator) {
     xpathEditHTML = `
       <tr>
         <th>XPath</th>
@@ -827,6 +990,7 @@ function renderStepDetails(step, isPlayback = false) {
             <input type="text" class="xpath-input input" value="${xpathSelector}" placeholder="XPath выражение" readonly>
             <div class="xpath-actions">
               <button class="btn btn-small btn-copy-xpath" title="Скопировать XPath">📋 Копировать</button>
+              ${canChangeLocator ? `<button class="btn btn-small btn-change-locator" title="Выбрать новый элемент">🎯 Поменять локатор</button>` : ''}
             </div>
           </div>
         </td>
@@ -879,6 +1043,7 @@ function renderStepDetails(step, isPlayback = false) {
   // Add event listeners for XPath buttons
   const copyBtn = container.querySelector('.btn-copy-xpath');
   const xpathInput = container.querySelector('.xpath-input');
+  const changeLocatorBtn = container.querySelector('.btn-change-locator');
   
   if (copyBtn && xpathInput) {
     copyBtn.addEventListener('click', async () => {
@@ -924,6 +1089,13 @@ function renderStepDetails(step, isPlayback = false) {
       }
     });
   }
+  
+  // Add change locator button handler
+  if (changeLocatorBtn && currentStepIndex !== null) {
+    changeLocatorBtn.addEventListener('click', () => {
+      startChangeLocator(currentStepIndex);
+    });
+  }
 }
 
 function renderPlaybackView() {
@@ -931,7 +1103,8 @@ function renderPlaybackView() {
   
   const container = document.getElementById('playbackStepsList');
   const recordingId = state.currentRecording.id;
-  const stepResults = state.folderStepResults[recordingId] || {};
+  // Use folder step results or single playback step results
+  const stepResults = state.isPlayingFolder ? (state.folderStepResults[recordingId] || {}) : state.playbackStepResults;
   
   container.innerHTML = state.currentRecording.steps.map((step, index) => {
     const stepResult = stepResults[index];
@@ -972,7 +1145,7 @@ function renderPlaybackView() {
         } else {
           // Show step details
           const step = state.currentRecording.steps[index];
-          renderPlaybackStepDetails(step);
+          renderPlaybackStepDetails(step, index);
         }
       }
     });
@@ -989,10 +1162,13 @@ function renderPlaybackView() {
   
   // Update code preview
   updateCodePreview();
+  
+  // Update reset button visibility
+  updatePlaybackResetButton();
 }
 
-function renderPlaybackStepDetails(step) {
-  renderStepDetails(step, true);
+function renderPlaybackStepDetails(step, stepIndex = null) {
+  renderStepDetails(step, true, stepIndex !== null ? stepIndex : state.selectedStep);
 }
 
 function formatWaitForElementStep(step) {
@@ -1101,6 +1277,10 @@ function updateView() {
 
 async function openRecording(id) {
   state.currentRecording = state.recordings.find(r => r.id === id);
+  // Reset playback results when opening a new recording
+  state.playbackStepResults = {};
+  state.playbackCompleted = false;
+  state.selectedStep = null;
   state.currentView = 'playback';
   updateView();
   renderPlaybackView();
