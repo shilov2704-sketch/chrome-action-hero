@@ -268,12 +268,25 @@
         <div class="details-panel">
           <div class="panel-tabs">
             <button class="tab-btn active" data-tab="playbackDetails">Детали</button>
+            <button class="tab-btn" data-tab="playbackSettings">Настройки</button>
             <button class="tab-btn" data-tab="playbackCode">Show Code</button>
           </div>
 
           <div id="playbackDetailsTab" class="tab-content active">
             <div id="playbackStepDetails" class="step-details-empty">
               <p>Выберите шаг для просмотра деталей</p>
+            </div>
+          </div>
+
+          <div id="playbackSettingsTab" class="tab-content">
+            <div class="settings-section">
+              <h4>Заменить Host</h4>
+              <p class="settings-description">Замените хост во всех URL записи (например, с dev на staging)</p>
+              <div class="host-replace-container">
+                <input type="text" id="newHostInput" class="input" placeholder="https://new-host.example.com">
+                <button id="applyHostBtn" class="btn btn-primary">Применить</button>
+              </div>
+              <div id="currentHostInfo" class="current-host-info"></div>
             </div>
           </div>
 

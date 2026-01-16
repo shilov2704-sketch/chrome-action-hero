@@ -375,6 +375,9 @@ function initializeEventListeners() {
   
   // Continue Recording button
   document.getElementById('continueRecordingBtn').addEventListener('click', continueRecording);
+  
+  // Apply Host button
+  document.getElementById('applyHostBtn').addEventListener('click', applyHostReplacement);
 }
 
 async function initializeTheme() {
@@ -1197,10 +1200,139 @@ function renderPlaybackView() {
   
   // Update reset button visibility
   updatePlaybackResetButton();
+  
+  // Update host info for settings tab
+  updateHostInfo();
 }
 
 function renderPlaybackStepDetails(step, stepIndex = null) {
   renderStepDetails(step, true, stepIndex !== null ? stepIndex : state.selectedStep);
+}
+
+// Extract current host from recording
+function getCurrentHostFromRecording(recording) {
+  if (!recording || !recording.steps) return null;
+  
+  for (const step of recording.steps) {
+    if (step.url) {
+      try {
+        const url = new URL(step.url);
+        return url.origin;
+      } catch (e) {
+        continue;
+      }
+    }
+    // Check assertedEvents for navigation URLs
+    if (step.assertedEvents) {
+      for (const event of step.assertedEvents) {
+        if (event.url) {
+          try {
+            const url = new URL(event.url);
+            return url.origin;
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Replace host in all URLs of the recording
+function replaceHostInRecording(newHost) {
+  if (!state.currentRecording || !newHost) return false;
+  
+  // Normalize new host - remove trailing slash
+  newHost = newHost.replace(/\/$/, '');
+  
+  // Validate new host is a valid URL
+  try {
+    new URL(newHost);
+  } catch (e) {
+    alert('Некорректный URL хоста. Пример: https://stg-app.hubex.ru');
+    return false;
+  }
+  
+  const currentHost = getCurrentHostFromRecording(state.currentRecording);
+  if (!currentHost) {
+    alert('Не удалось определить текущий хост в записи');
+    return false;
+  }
+  
+  // Replace host in all steps
+  const updatedSteps = state.currentRecording.steps.map(step => {
+    const newStep = { ...step };
+    
+    // Replace in step.url
+    if (newStep.url && newStep.url.startsWith(currentHost)) {
+      newStep.url = newStep.url.replace(currentHost, newHost);
+    }
+    
+    // Replace in assertedEvents
+    if (newStep.assertedEvents && Array.isArray(newStep.assertedEvents)) {
+      newStep.assertedEvents = newStep.assertedEvents.map(event => {
+        if (event.url && event.url.startsWith(currentHost)) {
+          return { ...event, url: event.url.replace(currentHost, newHost) };
+        }
+        return event;
+      });
+    }
+    
+    return newStep;
+  });
+  
+  // Update current recording
+  state.currentRecording = {
+    ...state.currentRecording,
+    steps: updatedSteps
+  };
+  
+  // Save to storage
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+    saveRecordings();
+  }
+  
+  return true;
+}
+
+// Update host info display
+function updateHostInfo() {
+  const hostInfoEl = document.getElementById('currentHostInfo');
+  if (!hostInfoEl) return;
+  
+  const currentHost = getCurrentHostFromRecording(state.currentRecording);
+  if (currentHost) {
+    hostInfoEl.innerHTML = `<strong>Текущий хост:</strong> ${currentHost}`;
+  } else {
+    hostInfoEl.innerHTML = '<em>Хост не определен</em>';
+  }
+}
+
+// Apply host replacement
+function applyHostReplacement() {
+  const newHostInput = document.getElementById('newHostInput');
+  if (!newHostInput) return;
+  
+  const newHost = newHostInput.value.trim();
+  if (!newHost) {
+    alert('Введите новый хост');
+    return;
+  }
+  
+  if (replaceHostInRecording(newHost)) {
+    // Clear input
+    newHostInput.value = '';
+    
+    // Update UI
+    renderPlaybackView();
+    updateHostInfo();
+    
+    // Show success feedback
+    alert('Хост успешно заменен во всех URL записи');
+  }
 }
 
 function formatWaitForElementStep(step) {
