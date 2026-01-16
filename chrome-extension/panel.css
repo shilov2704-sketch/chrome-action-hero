@@ -1161,3 +1161,31 @@ body {
 .current-host-info strong {
   color: var(--text-primary);
 }
+
+/* Preconditions Input */
+.preconditions-input {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--font-family);
+  line-height: 1.4;
+}
+
+.preconditions-edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preconditions-edit-container .preconditions-input {
+  width: 100%;
+}
+
+.preconditions-edit-container .btn {
+  align-self: flex-end;
+}
+
+.settings-section + .settings-section {
+  border-top: 1px solid var(--border-color);
+  margin-top: 16px;
+  padding-top: 16px;
+}
