@@ -1115,3 +1115,49 @@ body {
 .import-option:last-child {
   border-radius: 0 0 4px 4px;
 }
+
+/* Host Replace Settings */
+.settings-section {
+  padding: 16px;
+}
+
+.settings-section h4 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-description {
+  margin: 0 0 12px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.host-replace-container {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.host-replace-container .input {
+  flex: 1;
+  font-size: 12px;
+}
+
+.host-replace-container .btn {
+  white-space: nowrap;
+}
+
+.current-host-info {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.current-host-info strong {
+  color: var(--text-primary);
+}
