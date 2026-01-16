@@ -1365,59 +1365,119 @@ function formatWaitForElementStep(step) {
   return `expected element ${selector} contain text - ${expectedText}`;
 }
 
+// Helper function to extract xpath from selectors
+function extractXPathFromSelectors(selectors) {
+  if (!selectors || selectors.length === 0) return '';
+  
+  for (const selectorGroup of selectors) {
+    if (Array.isArray(selectorGroup) && selectorGroup[0]) {
+      const raw = selectorGroup[0];
+      if (typeof raw === 'string' && raw.startsWith('xpath')) {
+        let xpath = raw.slice('xpath'.length);
+        // Normalize to always start with "//"
+        if (xpath.startsWith('/') && !xpath.startsWith('//')) {
+          xpath = '/' + xpath;
+        } else if (!xpath.startsWith('/')) {
+          xpath = '//' + xpath;
+        }
+        return xpath;
+      }
+    }
+  }
+  return '';
+}
+
+// Helper function to extract name from selectors (text selector)
+function extractNameFromSelectors(selectors) {
+  if (!selectors || selectors.length === 0) return '';
+  
+  for (const selectorGroup of selectors) {
+    if (Array.isArray(selectorGroup) && selectorGroup[0]) {
+      const raw = selectorGroup[0];
+      if (typeof raw === 'string' && raw.startsWith('text/')) {
+        return raw.slice('text/'.length);
+      }
+    }
+  }
+  return '';
+}
+
 function prepareRecordingForExport(recording) {
   if (!recording) return null;
 
   const { steps = [], ...rest } = recording;
   
-  // Process steps: group consecutive waitForElement into checkSteps arrays
-  // while preserving the chronological order
+  // Process steps: add do, name, value, path fields
+  // All steps go into one array (no more checkSteps grouping)
   const processedSteps = [];
-  let currentCheckSteps = [];
   
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     
-    if (step.type === 'waitForElement') {
-      // Add full step object to current checkSteps group (instead of formatted string)
-      // Create a clean copy of the step for export
-      const exportStep = { ...step };
-      
-      // Normalize xpath selectors to always start with "//"
-      if (exportStep.selectors && exportStep.selectors.length > 0) {
-        exportStep.selectors = exportStep.selectors.map(selectorGroup => {
-          if (Array.isArray(selectorGroup) && selectorGroup[0]) {
-            const raw = selectorGroup[0];
-            if (typeof raw === 'string' && raw.startsWith('xpath')) {
-              let normalized = raw.slice('xpath'.length);
-              // Normalize to always start with "//" for consistency
-              if (normalized.startsWith('/') && !normalized.startsWith('//')) {
-                normalized = '/' + normalized;
-              } else if (!normalized.startsWith('/')) {
-                normalized = '//' + normalized;
-              }
-              return ['xpath' + normalized];
-            }
-          }
-          return selectorGroup;
-        });
-      }
-      
-      currentCheckSteps.push(exportStep);
-    } else {
-      // If we have accumulated checkSteps, flush them first
-      if (currentCheckSteps.length > 0) {
-        processedSteps.push({ checkSteps: currentCheckSteps });
-        currentCheckSteps = [];
-      }
-      // Add the regular step
-      processedSteps.push(step);
+    // For navigate and setViewport - keep as is, no extra fields
+    if (step.type === 'navigate' || step.type === 'setViewport') {
+      processedSteps.push({ ...step });
+      continue;
     }
-  }
-  
-  // Don't forget any remaining checkSteps at the end
-  if (currentCheckSteps.length > 0) {
-    processedSteps.push({ checkSteps: currentCheckSteps });
+    
+    // For click, change, waitForElement - add do, name, value, path
+    const exportStep = { ...step };
+    
+    // Determine "do" field
+    if (step.type === 'click' || step.type === 'change') {
+      exportStep.do = 'action';
+    } else if (step.type === 'waitForElement') {
+      exportStep.do = 'check';
+    }
+    
+    // Extract path (xpath)
+    const xpath = extractXPathFromSelectors(step.selectors);
+    exportStep.path = xpath;
+    
+    // Extract name from text selector or step.name
+    let name = step.name || extractNameFromSelectors(step.selectors) || '';
+    // Clean up name (remove newlines)
+    name = name.replace(/\n/g, '').trim();
+    exportStep.name = name;
+    
+    // Extract value
+    exportStep.value = step.value !== undefined && step.value !== null ? step.value : '';
+    
+    // Normalize xpath selectors for consistency
+    if (exportStep.selectors && exportStep.selectors.length > 0) {
+      exportStep.selectors = exportStep.selectors.map(selectorGroup => {
+        if (Array.isArray(selectorGroup) && selectorGroup[0]) {
+          const raw = selectorGroup[0];
+          if (typeof raw === 'string' && raw.startsWith('xpath')) {
+            let normalized = raw.slice('xpath'.length);
+            if (normalized.startsWith('/') && !normalized.startsWith('//')) {
+              normalized = '/' + normalized;
+            } else if (!normalized.startsWith('/')) {
+              normalized = '//' + normalized;
+            }
+            return ['xpath' + normalized];
+          }
+        }
+        return selectorGroup;
+      });
+    }
+    
+    // Reorder properties: do, type, name, value, path first
+    const orderedStep = {};
+    if (exportStep.do !== undefined) orderedStep.do = exportStep.do;
+    orderedStep.type = exportStep.type;
+    if (exportStep.do !== undefined) orderedStep.name = exportStep.name;
+    if (exportStep.do !== undefined) orderedStep.value = exportStep.value;
+    if (exportStep.do !== undefined) orderedStep.path = exportStep.path;
+    
+    // Add remaining properties
+    for (const key of Object.keys(exportStep)) {
+      if (!['do', 'type', 'name', 'value', 'path'].includes(key)) {
+        orderedStep[key] = exportStep[key];
+      }
+    }
+    
+    processedSteps.push(orderedStep);
   }
 
   const result = {
