@@ -122,6 +122,11 @@
         </div>
 
         <div class="form-group">
+          <label for="preconditions">Предусловия (необязательно)</label>
+          <textarea id="preconditions" class="input preconditions-input" placeholder="Введите предусловия для теста..." rows="3"></textarea>
+        </div>
+
+        <div class="form-group">
           <label>Типы селекторов</label>
           <div class="checkbox-group">
             <label class="checkbox-label">
@@ -279,6 +284,15 @@
           </div>
 
           <div id="playbackSettingsTab" class="tab-content">
+            <div class="settings-section">
+              <h4>Предусловия</h4>
+              <p class="settings-description">Опишите предусловия для выполнения теста</p>
+              <div class="preconditions-edit-container">
+                <textarea id="editPreconditions" class="input preconditions-input" placeholder="Введите предусловия..." rows="3"></textarea>
+                <button id="savePreconditionsBtn" class="btn btn-primary">Сохранить</button>
+              </div>
+            </div>
+            
             <div class="settings-section">
               <h4>Заменить Host</h4>
               <p class="settings-description">Замените хост во всех URL записи (например, с dev на staging)</p>

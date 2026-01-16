@@ -378,6 +378,9 @@ function initializeEventListeners() {
   
   // Apply Host button
   document.getElementById('applyHostBtn').addEventListener('click', applyHostReplacement);
+  
+  // Save Preconditions button
+  document.getElementById('savePreconditionsBtn').addEventListener('click', savePreconditions);
 }
 
 async function initializeTheme() {
@@ -419,6 +422,9 @@ async function startRecording() {
   
   const suiteNameInput = document.getElementById('suiteName');
   const suiteName = suiteNameInput.value.trim();
+  
+  const preconditionsInput = document.getElementById('preconditions');
+  const preconditions = preconditionsInput ? preconditionsInput.value.trim() : '';
 
   if (!name) {
     alert('Пожалуйста, введите название записи');
@@ -442,6 +448,7 @@ async function startRecording() {
   state.currentRecording = {
     id: Date.now(),
     title: name,
+    preconditions: preconditions,
     suiteName: suiteName,
     selectorAttribute: 'data-testid',
     createdAt: new Date().toISOString(),
@@ -1301,14 +1308,43 @@ function replaceHostInRecording(newHost) {
 // Update host info display
 function updateHostInfo() {
   const hostInfoEl = document.getElementById('currentHostInfo');
-  if (!hostInfoEl) return;
-  
-  const currentHost = getCurrentHostFromRecording(state.currentRecording);
-  if (currentHost) {
-    hostInfoEl.innerHTML = `<strong>Текущий хост:</strong> ${currentHost}`;
-  } else {
-    hostInfoEl.innerHTML = '<em>Хост не определен</em>';
+  if (hostInfoEl) {
+    const currentHost = getCurrentHostFromRecording(state.currentRecording);
+    if (currentHost) {
+      hostInfoEl.innerHTML = `<strong>Текущий хост:</strong> ${currentHost}`;
+    } else {
+      hostInfoEl.innerHTML = '<em>Хост не определен</em>';
+    }
   }
+  
+  // Update preconditions field
+  const preconditionsInput = document.getElementById('editPreconditions');
+  if (preconditionsInput && state.currentRecording) {
+    preconditionsInput.value = state.currentRecording.preconditions || '';
+  }
+}
+
+// Save preconditions
+function savePreconditions() {
+  const preconditionsInput = document.getElementById('editPreconditions');
+  if (!preconditionsInput || !state.currentRecording) return;
+  
+  const newPreconditions = preconditionsInput.value.trim();
+  
+  // Update current recording
+  state.currentRecording = {
+    ...state.currentRecording,
+    preconditions: newPreconditions
+  };
+  
+  // Save to storage
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+    saveRecordings();
+  }
+  
+  alert('Предусловия сохранены');
 }
 
 // Apply host replacement
@@ -1480,10 +1516,26 @@ function prepareRecordingForExport(recording) {
     processedSteps.push(orderedStep);
   }
 
+  // Build result with specific field order: 
+  // createdAt, folderId, id, selectedSelectors, selectorAttribute, suiteName, title, preconditions, steps
   const result = {
-    ...rest,
+    createdAt: rest.createdAt,
+    folderId: rest.folderId,
+    id: rest.id,
+    selectedSelectors: rest.selectedSelectors,
+    selectorAttribute: rest.selectorAttribute,
+    suiteName: rest.suiteName,
+    title: rest.title,
+    preconditions: rest.preconditions !== undefined ? rest.preconditions : '',
     steps: processedSteps
   };
+  
+  // Remove undefined fields (like folderId if not set)
+  Object.keys(result).forEach(key => {
+    if (result[key] === undefined) {
+      delete result[key];
+    }
+  });
 
   return result;
 }
