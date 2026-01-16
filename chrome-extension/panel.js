@@ -714,12 +714,14 @@ function renderRecordingsList() {
   let displayFolders;
   
   if (searchQuery) {
-    // Global search - search across ALL recordings
+    // Global search - search across ALL recordings AND folders
     displayRecordings = state.recordings.filter(r => 
       r.title.toLowerCase().includes(searchQuery)
     );
-    // When searching, don't show folders (show flat list of matching recordings)
-    displayFolders = [];
+    // Also search folders by name
+    displayFolders = state.folders.filter(f => 
+      f.name.toLowerCase().includes(searchQuery)
+    );
   } else if (state.currentFolder) {
     // Inside a folder - show only recordings in this folder
     displayRecordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
@@ -731,7 +733,7 @@ function renderRecordingsList() {
   }
   
   // Show "no results" for search
-  if (searchQuery && displayRecordings.length === 0) {
+  if (searchQuery && displayRecordings.length === 0 && displayFolders.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🔍</div>
