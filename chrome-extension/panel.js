@@ -27,7 +27,8 @@ const state = {
   currentPlayingRecordingId: null,
   folderPlaybackCompleted: false,
   playbackStepResults: {}, // For single recording playback {stepIndex: 'success' | 'error'}
-  playbackCompleted: false
+  playbackCompleted: false,
+  searchQuery: '' // Search query for filtering recordings
 };
 
 // Initialize
@@ -67,6 +68,23 @@ function initializeEventListeners() {
   
   // Create folder
   document.getElementById('createFolderBtn').addEventListener('click', createFolder);
+  
+  // Search functionality
+  const searchInput = document.getElementById('searchInput');
+  const clearSearchBtn = document.getElementById('clearSearchBtn');
+  
+  searchInput.addEventListener('input', (e) => {
+    state.searchQuery = e.target.value;
+    clearSearchBtn.style.display = state.searchQuery ? 'flex' : 'none';
+    renderRecordingsList();
+  });
+  
+  clearSearchBtn.addEventListener('click', () => {
+    state.searchQuery = '';
+    searchInput.value = '';
+    clearSearchBtn.style.display = 'none';
+    renderRecordingsList();
+  });
 
   document.getElementById('backToMainBtn').addEventListener('click', () => {
     state.currentView = 'main';
@@ -689,12 +707,20 @@ function switchTab(tabName, parentPanel = document) {
 // Render Functions
 function renderRecordingsList() {
   const container = document.getElementById('recordingsList');
+  const searchQuery = state.searchQuery.toLowerCase().trim();
   
   // Get recordings for current view (folder or root)
   let displayRecordings;
   let displayFolders;
   
-  if (state.currentFolder) {
+  if (searchQuery) {
+    // Global search - search across ALL recordings
+    displayRecordings = state.recordings.filter(r => 
+      r.title.toLowerCase().includes(searchQuery)
+    );
+    // When searching, don't show folders (show flat list of matching recordings)
+    displayFolders = [];
+  } else if (state.currentFolder) {
     // Inside a folder - show only recordings in this folder
     displayRecordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
     displayFolders = [];
@@ -702,6 +728,18 @@ function renderRecordingsList() {
     // Root view - show folders and recordings without folder
     displayRecordings = state.recordings.filter(r => !r.folderId);
     displayFolders = state.folders;
+  }
+  
+  // Show "no results" for search
+  if (searchQuery && displayRecordings.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <h2>Ничего не найдено</h2>
+        <p>Попробуйте изменить поисковый запрос</p>
+      </div>
+    `;
+    return;
   }
   
   if (displayRecordings.length === 0 && displayFolders.length === 0 && !state.currentFolder) {
@@ -764,6 +802,14 @@ function renderRecordingsList() {
     if (isCurrentlyPlaying) resultClass = 'play-in-progress';
     else if (playResult === 'success') resultClass = 'play-success';
     else if (playResult === 'error') resultClass = 'play-error';
+    
+    // Find folder name for search results
+    let folderName = '';
+    if (searchQuery && recording.folderId) {
+      const folder = state.folders.find(f => f.id === recording.folderId);
+      folderName = folder ? folder.name : '';
+    }
+    
     return `
       <div class="recording-card ${isSelected ? 'selected' : ''} ${resultClass}" data-id="${recording.id}">
         <div class="recording-card-header">
@@ -775,6 +821,7 @@ function renderRecordingsList() {
           </div>
         </div>
         <div class="recording-card-meta">
+          ${folderName ? `<span class="folder-badge">📁 ${folderName}</span>` : ''}
           <span>📝 ${recording.steps.length} шагов</span>
           <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
