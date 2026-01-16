@@ -1379,8 +1379,31 @@ function prepareRecordingForExport(recording) {
     const step = steps[i];
     
     if (step.type === 'waitForElement') {
-      // Add to current checkSteps group
-      currentCheckSteps.push(formatWaitForElementStep(step));
+      // Add full step object to current checkSteps group (instead of formatted string)
+      // Create a clean copy of the step for export
+      const exportStep = { ...step };
+      
+      // Normalize xpath selectors to always start with "//"
+      if (exportStep.selectors && exportStep.selectors.length > 0) {
+        exportStep.selectors = exportStep.selectors.map(selectorGroup => {
+          if (Array.isArray(selectorGroup) && selectorGroup[0]) {
+            const raw = selectorGroup[0];
+            if (typeof raw === 'string' && raw.startsWith('xpath')) {
+              let normalized = raw.slice('xpath'.length);
+              // Normalize to always start with "//" for consistency
+              if (normalized.startsWith('/') && !normalized.startsWith('//')) {
+                normalized = '/' + normalized;
+              } else if (!normalized.startsWith('/')) {
+                normalized = '//' + normalized;
+              }
+              return ['xpath' + normalized];
+            }
+          }
+          return selectorGroup;
+        });
+      }
+      
+      currentCheckSteps.push(exportStep);
     } else {
       // If we have accumulated checkSteps, flush them first
       if (currentCheckSteps.length > 0) {
