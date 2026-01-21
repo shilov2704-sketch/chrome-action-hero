@@ -1184,9 +1184,18 @@ async function executeStep(step, settings) {
         // Check if element or its parent has a data-test containing "Button" - these are action buttons
         // that open modals or perform actions, not dropdown menu toggles
         const hasButtonDataTest = (() => {
+          // First check if any parent has mainMenu or SideBar in data-test (for sidebar menu items)
           let el = clickElement;
           while (el && el !== document.body) {
             const dataTest = el.getAttribute?.('data-test') || '';
+            // Check for sidebar menu items specifically
+            if (dataTest.toLowerCase().includes('mainmenu') || 
+                dataTest.toLowerCase().includes('sidebar') ||
+                dataTest.toLowerCase().includes('sidemenu') ||
+                dataTest.includes('SideBar') ||
+                dataTest.includes('MenuItem')) {
+              return true;
+            }
             if (dataTest.toLowerCase().includes('button') || 
                 dataTest.toLowerCase().includes('picker') ||
                 dataTest.toLowerCase().includes('select') ||
@@ -1194,7 +1203,6 @@ async function executeStep(step, settings) {
                 dataTest.toLowerCase().includes('list') ||
                 dataTest.toLowerCase().includes('cell') ||
                 dataTest.toLowerCase().includes('menu') ||
-                dataTest.toLowerCase().includes('sidebar') ||
                 dataTest.toLowerCase().includes('nav')) {
               return true;
             }
