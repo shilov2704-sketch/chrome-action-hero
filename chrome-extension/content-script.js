@@ -1192,7 +1192,10 @@ async function executeStep(step, settings) {
                 dataTest.toLowerCase().includes('select') ||
                 dataTest.toLowerCase().includes('add') ||
                 dataTest.toLowerCase().includes('list') ||
-                dataTest.toLowerCase().includes('cell')) {
+                dataTest.toLowerCase().includes('cell') ||
+                dataTest.toLowerCase().includes('menu') ||
+                dataTest.toLowerCase().includes('sidebar') ||
+                dataTest.toLowerCase().includes('nav')) {
               return true;
             }
             el = el.parentElement;
