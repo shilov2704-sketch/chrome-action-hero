@@ -836,25 +836,7 @@ async function executeStep(step, settings) {
 
         // Calculate click coordinates (preserve recorded offsets when possible)
         const containerRect = clickElement.getBoundingClientRect();
-        const recordedHasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
-
-        // Sidebar menu items are sensitive to layout changes. Recorded offsets may land on
-        // non-toggle sub-elements (icons/badges) and break expansion.
-        // Detect them early and prefer a safe center click.
-        const isSidebarMenuItem = (() => {
-          let el = clickElement;
-          while (el) {
-            if (el === document.body) break;
-            const dt = el.getAttribute?.('data-test') || '';
-            const ldt = dt.toLowerCase();
-            if (ldt.includes('mainmenu-') || ldt.includes('sidebarmenuitem')) return true;
-            // Cross ShadowRoot boundaries when present
-            el = el.parentElement || el.getRootNode?.()?.host;
-          }
-          return false;
-        })();
-
-        const hasOffsets = recordedHasOffsets && !isSidebarMenuItem;
+        const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
 
         const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 
@@ -922,15 +904,6 @@ async function executeStep(step, settings) {
             if (meaningfulAncestor) {
               actualClickTarget = meaningfulAncestor;
             }
-          }
-        }
-
-        // For sidebar menu items, prefer clicking the meaningful ancestor (the whole row/root)
-        // instead of short "::..." wrapper nodes.
-        if (isSidebarMenuItem) {
-          const sidebarRoot = clickElement.closest?.('[data-test]:not([data-test^="::"])');
-          if (sidebarRoot) {
-            actualClickTarget = sidebarRoot;
           }
         }
 
@@ -1207,33 +1180,57 @@ async function executeStep(step, settings) {
         const isFormFieldContainer = 
           clickElement.querySelector?.('input, select, textarea, [role="combobox"], [role="textbox"]') ||
           clickElement.closest?.('label, .form-field, .input-field, [class*="input"], [class*="field"]');
+
+        // Sidebar menu items: never require DOM mutation verification (expansion may happen
+        // outside the observed subtree and would create false failures).
+        const isSidebarMenuItem = (() => {
+          let el = clickElement;
+          while (el) {
+            if (el === document.body) break;
+            const dt = el.getAttribute?.('data-test') || '';
+            const ldt = dt.toLowerCase();
+            if (ldt.includes('mainmenu-') || ldt.includes('sidebarmenuitem')) return true;
+            el = el.parentElement || el.getRootNode?.()?.host || null;
+          }
+          return false;
+        })();
         
         // Check if element or its parent has a data-test containing "Button" - these are action buttons
         // that open modals or perform actions, not dropdown menu toggles
         const hasButtonDataTest = (() => {
-          // First check if any parent has mainMenu or SideBar in data-test (for sidebar menu items)
+          // Check ancestors (including across ShadowRoot boundaries) for known patterns
           let el = clickElement;
-          while (el && el !== document.body) {
+          while (el) {
+            if (el === document.body) break;
             const dataTest = el.getAttribute?.('data-test') || '';
-            // Check for sidebar menu items specifically
-            if (dataTest.toLowerCase().includes('mainmenu') || 
-                dataTest.toLowerCase().includes('sidebar') ||
-                dataTest.toLowerCase().includes('sidemenu') ||
-                dataTest.includes('SideBar') ||
-                dataTest.includes('MenuItem')) {
+            const ldt = dataTest.toLowerCase();
+
+            // Sidebar/menu containers
+            if (
+              ldt.includes('mainmenu') ||
+              ldt.includes('sidebar') ||
+              ldt.includes('sidemenu') ||
+              dataTest.includes('SideBar') ||
+              dataTest.includes('MenuItem')
+            ) {
               return true;
             }
-            if (dataTest.toLowerCase().includes('button') || 
-                dataTest.toLowerCase().includes('picker') ||
-                dataTest.toLowerCase().includes('select') ||
-                dataTest.toLowerCase().includes('add') ||
-                dataTest.toLowerCase().includes('list') ||
-                dataTest.toLowerCase().includes('cell') ||
-                dataTest.toLowerCase().includes('menu') ||
-                dataTest.toLowerCase().includes('nav')) {
+
+            // Generic exclusions
+            if (
+              ldt.includes('button') ||
+              ldt.includes('picker') ||
+              ldt.includes('select') ||
+              ldt.includes('add') ||
+              ldt.includes('list') ||
+              ldt.includes('cell') ||
+              ldt.includes('menu') ||
+              ldt.includes('nav')
+            ) {
               return true;
             }
-            el = el.parentElement;
+
+            el = el.parentElement || el.getRootNode?.()?.host || null;
           }
           return false;
         })();
