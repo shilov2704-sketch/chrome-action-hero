@@ -836,7 +836,25 @@ async function executeStep(step, settings) {
 
         // Calculate click coordinates (preserve recorded offsets when possible)
         const containerRect = clickElement.getBoundingClientRect();
-        const hasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
+        const recordedHasOffsets = Number.isFinite(step.offsetX) && Number.isFinite(step.offsetY);
+
+        // Sidebar menu items are sensitive to layout changes. Recorded offsets may land on
+        // non-toggle sub-elements (icons/badges) and break expansion.
+        // Detect them early and prefer a safe center click.
+        const isSidebarMenuItem = (() => {
+          let el = clickElement;
+          while (el) {
+            if (el === document.body) break;
+            const dt = el.getAttribute?.('data-test') || '';
+            const ldt = dt.toLowerCase();
+            if (ldt.includes('mainmenu-') || ldt.includes('sidebarmenuitem')) return true;
+            // Cross ShadowRoot boundaries when present
+            el = el.parentElement || el.getRootNode?.()?.host;
+          }
+          return false;
+        })();
+
+        const hasOffsets = recordedHasOffsets && !isSidebarMenuItem;
 
         const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 
@@ -904,6 +922,15 @@ async function executeStep(step, settings) {
             if (meaningfulAncestor) {
               actualClickTarget = meaningfulAncestor;
             }
+          }
+        }
+
+        // For sidebar menu items, prefer clicking the meaningful ancestor (the whole row/root)
+        // instead of short "::..." wrapper nodes.
+        if (isSidebarMenuItem) {
+          const sidebarRoot = clickElement.closest?.('[data-test]:not([data-test^="::"])');
+          if (sidebarRoot) {
+            actualClickTarget = sidebarRoot;
           }
         }
 
@@ -1217,7 +1244,8 @@ async function executeStep(step, settings) {
           !clickElement.closest?.('a') &&
           !isInputLikeElement &&
           !isFormFieldContainer &&
-          !hasButtonDataTest;
+          !hasButtonDataTest &&
+          !isSidebarMenuItem;
 
         const mutationScope = shouldVerifyUiChange
           ? (clickElement.closest?.('[data-test]:not([data-test^="::"])') || clickElement.parentElement)
@@ -1265,6 +1293,8 @@ async function executeStep(step, settings) {
           'on',
           actualClickTarget.tagName,
           actualClickTarget.getAttribute('data-test') || '',
+          'isSidebarMenuItem:',
+          isSidebarMenuItem,
           'tabId:',
           tabId,
           'forceSyntheticClick:',
