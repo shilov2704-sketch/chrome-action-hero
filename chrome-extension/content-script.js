@@ -830,6 +830,72 @@ async function executeStep(step, settings) {
     case 'click': {
       const clickElement = await waitForElement(step.selectors, settings.timeout || 5000);
       if (clickElement) {
+        const stepExpectedText = (() => {
+          try {
+            for (const arr of step.selectors || []) {
+              const s = Array.isArray(arr) ? arr[0] : '';
+              if (typeof s === 'string' && s.startsWith('text/')) {
+                return s.slice('text/'.length).trim();
+              }
+            }
+          } catch {
+            // ignore
+          }
+          return '';
+        })();
+
+        const getDataTestChain = (startEl, limit = 14) => {
+          const chain = [];
+          let el = startEl;
+          let hops = 0;
+          while (el && hops < limit) {
+            if (el === document.body) break;
+            const dt = el.getAttribute?.('data-test') || '';
+            if (dt) chain.push(dt);
+            el = el.parentElement || el.getRootNode?.()?.host || null;
+            hops++;
+          }
+          return chain;
+        };
+
+        const isVisible = (el) => {
+          if (!el) return false;
+          try {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            const opacity = Number.parseFloat(style.opacity || '1');
+            return (
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              opacity > 0 &&
+              rect.width > 0 &&
+              rect.height > 0
+            );
+          } catch {
+            return false;
+          }
+        };
+
+        const hasSidebarLikeAncestor = (startEl) => {
+          let el = startEl;
+          while (el) {
+            if (el === document.body) break;
+            const dt = el.getAttribute?.('data-test') || '';
+            const ldt = dt.toLowerCase();
+            if (
+              ldt.includes('mainmenu') ||
+              ldt.includes('sidebar') ||
+              ldt.includes('sidemenu') ||
+              dt.includes('SideBar') ||
+              dt.includes('MenuItem')
+            ) {
+              return true;
+            }
+            el = el.parentElement || el.getRootNode?.()?.host || null;
+          }
+          return false;
+        };
+
         // Scroll element into view (avoid smooth scrolling so coordinates don't drift during animation)
         clickElement.scrollIntoView({ behavior: 'auto', block: 'center' });
         await new Promise(resolve => setTimeout(resolve, 150));
@@ -1444,9 +1510,65 @@ async function executeStep(step, settings) {
           }
 
            if (shouldVerifyUiChange && !uiChangedFromSynthetic) {
-             throw new Error(
-               `Клик не изменил UI (меню не раскрылось) [debug: tabId=${tabId ?? 'none'}, isSidebarMenuItem=${isSidebarMenuItem}, hasButtonDataTest=${hasButtonDataTest}, targetDt=${syntheticTarget.getAttribute?.('data-test') || ''}]`
-             );
+            // Fallback: for sidebar/menu items some apps attach handlers to inner nodes
+            // and/or update UI outside the narrow mutationScope. If we have a text selector,
+            // try a second isTrusted click on the best visible text match inside sidebar.
+            const trySidebarTextFallback = async () => {
+              if (!stepExpectedText) return false;
+              const tabIdLocal = tabId;
+              if (!tabIdLocal) return false;
+
+              const candidates = Array.from(document.querySelectorAll('span, div, a, button'))
+                .filter((el) => {
+                  const txt = (el.textContent || '').trim();
+                  return txt === stepExpectedText && isVisible(el) && hasSidebarLikeAncestor(el);
+                });
+
+              const picked = candidates[0] || null;
+              if (!picked) return false;
+
+              try {
+                picked.scrollIntoView({ behavior: 'auto', block: 'center' });
+                await new Promise((r) => setTimeout(r, 80));
+              } catch {
+                // ignore
+              }
+
+              const r = picked.getBoundingClientRect();
+              const fx = r.left + r.width / 2;
+              const fy = r.top + r.height / 2;
+
+              const scope =
+                picked.closest?.('[data-test*="mainMenu"], [data-test*="mainmenu"], [data-test*="SideBar"], [data-test*="MenuItem"]') ||
+                document.body;
+
+              const m = waitForDomMutation(scope, 1200);
+              await new Promise((resolve) => {
+                chrome.runtime.sendMessage(
+                  { action: 'debuggerClick', tabId: tabIdLocal, x: fx, y: fy, clickCount: 1 },
+                  resolve
+                );
+              });
+
+              const changed = await m;
+              console.warn(
+                'Sidebar text fallback click attempted',
+                { text: stepExpectedText, changed, dt: picked.getAttribute?.('data-test') || '' }
+              );
+              return changed;
+            };
+
+            const recovered = await trySidebarTextFallback();
+            if (recovered) {
+              uiChangedFromSynthetic = true;
+            }
+
+            if (!uiChangedFromSynthetic) {
+              const chain = getDataTestChain(actualClickTarget || clickElement).slice(0, 10).join(' > ');
+              throw new Error(
+                `Клик не изменил UI (меню не раскрылось) [debug: tabId=${tabId ?? 'none'}, isSidebarMenuItem=${isSidebarMenuItem}, hasButtonDataTest=${hasButtonDataTest}, targetDt=${syntheticTarget.getAttribute?.('data-test') || ''}, expectedText=${stepExpectedText || ''}, chain=${chain}]`
+              );
+            }
           }
           
           // For checkboxes/radios, ensure change event fires
