@@ -1697,6 +1697,26 @@ function findElement(selectors) {
     }
   };
 
+  const hasSidebarLikeAncestor = (startEl) => {
+    let el = startEl;
+    while (el) {
+      if (el === document.body) break;
+      const dt = el.getAttribute?.('data-test') || '';
+      const ldt = dt.toLowerCase();
+      if (
+        ldt.includes('mainmenu') ||
+        ldt.includes('sidebar') ||
+        ldt.includes('sidemenu') ||
+        dt.includes('SideBar') ||
+        dt.includes('MenuItem')
+      ) {
+        return true;
+      }
+      el = el.parentElement || el.getRootNode?.()?.host || null;
+    }
+    return false;
+  };
+
   const pickBestXPathMatch = (xpathExpr) => {
     try {
       const snap = document.evaluate(
@@ -1712,29 +1732,41 @@ function findElement(selectors) {
         const node = snap.snapshotItem(i);
         if (node && node.nodeType === Node.ELEMENT_NODE) all.push(node);
       }
-
       if (all.length === 0) return null;
 
-      let candidates = all.filter(isVisibleElement);
-      if (candidates.length === 0) candidates = all;
-
-      if (expectedText) {
-        const withText = candidates.filter((el) =>
-          (el.textContent || '').trim().includes(expectedText)
-        );
-        if (withText.length > 0) candidates = withText;
-      }
-
-      const inViewport = candidates.filter((el) => {
+      const score = (el) => {
+        let s = 0;
+        if (isVisibleElement(el)) s += 20;
+        if (hasSidebarLikeAncestor(el)) s += 40;
+        if (expectedText && ((el.textContent || '').trim().includes(expectedText))) s += 60;
         try {
           const r = el.getBoundingClientRect();
-          return r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+          const inViewport = r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+          if (inViewport) s += 5;
         } catch {
-          return false;
+          // ignore
         }
-      });
+        return s;
+      };
 
-      return inViewport[0] || candidates[0] || all[0] || null;
+      let best = all[0];
+      let bestScore = score(best);
+      for (let i = 1; i < all.length; i++) {
+        const sc = score(all[i]);
+        if (sc > bestScore) {
+          best = all[i];
+          bestScore = sc;
+        }
+      }
+
+      if (all.length > 1) {
+        console.debug(
+          'XPath matched multiple elements; picking best by score',
+          { xpath: xpathExpr, expectedText, bestScore, bestDt: best?.getAttribute?.('data-test') || '' }
+        );
+      }
+
+      return best;
     } catch (e) {
       console.warn('Invalid XPath:', xpathExpr, e);
       return null;
