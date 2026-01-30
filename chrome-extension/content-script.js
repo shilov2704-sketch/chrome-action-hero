@@ -1634,6 +1634,79 @@ async function executeStep(step, settings) {
 function findElement(selectors) {
   if (!Array.isArray(selectors)) return null;
 
+  const expectedText = (() => {
+    for (const selectorArray of selectors) {
+      if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+      const s = selectorArray[0];
+      if (typeof s === 'string' && s.startsWith('text/')) {
+        return s.slice('text/'.length).trim();
+      }
+    }
+    return '';
+  })();
+
+  const isVisibleElement = (el) => {
+    if (!el) return false;
+    try {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      const opacity = Number.parseFloat(style.opacity || '1');
+      return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        opacity > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const pickBestXPathMatch = (xpathExpr) => {
+    try {
+      const snap = document.evaluate(
+        xpathExpr,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+
+      const all = [];
+      for (let i = 0; i < snap.snapshotLength; i++) {
+        const node = snap.snapshotItem(i);
+        if (node && node.nodeType === Node.ELEMENT_NODE) all.push(node);
+      }
+
+      if (all.length === 0) return null;
+
+      let candidates = all.filter(isVisibleElement);
+      if (candidates.length === 0) candidates = all;
+
+      if (expectedText) {
+        const withText = candidates.filter((el) =>
+          (el.textContent || '').trim().includes(expectedText)
+        );
+        if (withText.length > 0) candidates = withText;
+      }
+
+      const inViewport = candidates.filter((el) => {
+        try {
+          const r = el.getBoundingClientRect();
+          return r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+        } catch {
+          return false;
+        }
+      });
+
+      return inViewport[0] || candidates[0] || all[0] || null;
+    } catch (e) {
+      console.warn('Invalid XPath:', xpathExpr, e);
+      return null;
+    }
+  };
+
   const normalizeXPathSelector = (selector) => {
     if (typeof selector !== 'string') return null;
     if (!selector.startsWith('xpath')) return null;
@@ -1665,14 +1738,15 @@ function findElement(selectors) {
       if (typeof selector === 'string' && selector.startsWith('xpath') && !selector.startsWith('xpath//')) {
         console.debug('Normalizing XPath selector:', selector, '=>', xpath);
       }
-      try {
-        const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-        if (result.singleNodeValue) {
-          console.log('Found element using XPath:', xpath);
-          return result.singleNodeValue;
-        }
-      } catch (e) {
-        console.warn('Invalid XPath:', xpath, e);
+
+      const picked = pickBestXPathMatch(xpath);
+      if (picked) {
+        console.log(
+          'Found element using XPath:',
+          xpath,
+          expectedText ? `(prefer text: "${expectedText}")` : ''
+        );
+        return picked;
       }
     }
   }
