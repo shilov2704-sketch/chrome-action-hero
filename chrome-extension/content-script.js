@@ -1184,7 +1184,8 @@ async function executeStep(step, settings) {
         // Sidebar menu items: never require DOM mutation verification (expansion may happen
         // outside the observed subtree and would create false failures).
         const isSidebarMenuItem = (() => {
-          let el = clickElement;
+          // Use actualClickTarget when available: clickElement might be a short "::..." wrapper.
+          let el = actualClickTarget || clickElement;
           while (el) {
             if (el === document.body) break;
             const dt = el.getAttribute?.('data-test') || '';
@@ -1348,14 +1349,14 @@ async function executeStep(step, settings) {
 
         // Fallback to synthetic click if debugger click failed or tabId not available
         // OR forced synthetic click for checkbox inside <a>
-        if (!clickSucceeded || forceSyntheticClick) {
+         if (!clickSucceeded || forceSyntheticClick) {
           console.log('Using synthetic click', forceSyntheticClick ? '(forced for checkbox inside <a>)' : '(fallback)');
 
           let uiChangedFromSynthetic = true;
           const synMutation = shouldVerifyUiChange ? waitForDomMutation(mutationScope) : null;
           
           // For checkbox inside <a>, add click handler to prevent link navigation
-          const linkAncestor = forceSyntheticClick ? actualClickTarget.closest?.('a') : null;
+           const linkAncestor = forceSyntheticClick ? actualClickTarget.closest?.('a') : null;
           const preventNavigation = (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1365,45 +1366,76 @@ async function executeStep(step, settings) {
             linkAncestor.addEventListener('click', preventNavigation, { capture: true, once: true });
           }
           
-          // Focus first for inputs
-          const tagName = actualClickTarget.tagName?.toLowerCase();
-          const role = actualClickTarget.getAttribute?.('role');
+           // Use recorded click coordinates (offset-based) for synthetic clicks too.
+           // Fallback-to-center caused misses for some sidebar menu items.
+           const rectForPoint = actualClickTarget.getBoundingClientRect();
+           const sx = clamp(clickX, rectForPoint.left + 1, rectForPoint.right - 1);
+           const sy = clamp(clickY, rectForPoint.top + 1, rectForPoint.bottom - 1);
+
+           // Hit-test: dispatch events on the element that would really receive the click.
+           // This matters when listeners are attached to nested spans/icons (capture handlers, etc.).
+           let hit = null;
+           try {
+             hit = document.elementFromPoint(sx, sy);
+           } catch (e) {
+             // ignore
+           }
+
+           const pickSyntheticTarget = (container, atPoint) => {
+             if (!atPoint) return container;
+             if (!(container === atPoint || container.contains(atPoint))) return container;
+
+             const interactive = atPoint.closest?.(
+               'button, a, [role="button"], [role="menuitem"], [role="option"], [role="tab"], [onclick], [tabindex]'
+             );
+             if (interactive && (container === interactive || container.contains(interactive))) {
+               const ti = interactive.getAttribute?.('tabindex');
+               // Ignore tabindex="-1" elements as primary target.
+               if (ti == null || ti !== '-1') return interactive;
+             }
+             return atPoint;
+           };
+
+           const syntheticTarget = pickSyntheticTarget(actualClickTarget, hit);
+
+           // Focus first for inputs
+           const tagName = syntheticTarget.tagName?.toLowerCase();
+           const role = syntheticTarget.getAttribute?.('role');
           const isInput = tagName === 'input' || tagName === 'select' || role === 'checkbox' || role === 'radio';
-          const isCustomCheckbox = (actualClickTarget.getAttribute?.('data-test') || '').toLowerCase().includes('checkbox');
+           const isCustomCheckbox = (syntheticTarget.getAttribute?.('data-test') || '').toLowerCase().includes('checkbox');
           
           if (isInput || isCustomCheckbox) {
-            actualClickTarget.focus?.();
+             syntheticTarget.focus?.();
             await new Promise(resolve => setTimeout(resolve, 50));
           }
           
           // Dispatch synthetic events
-          const rect = actualClickTarget.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
+           const cx = sx;
+           const cy = sy;
           
-          actualClickTarget.dispatchEvent(new PointerEvent('pointerdown', {
+           syntheticTarget.dispatchEvent(new PointerEvent('pointerdown', {
             bubbles: true, cancelable: true, view: window,
             clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', isPrimary: true
           }));
           
           await new Promise(resolve => setTimeout(resolve, 10));
           
-          actualClickTarget.dispatchEvent(new PointerEvent('pointerup', {
+           syntheticTarget.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true, cancelable: true, view: window,
             clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse', isPrimary: true
           }));
           
-          actualClickTarget.dispatchEvent(new MouseEvent('mousedown', {
+           syntheticTarget.dispatchEvent(new MouseEvent('mousedown', {
             bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
           }));
           
-          actualClickTarget.dispatchEvent(new MouseEvent('mouseup', {
+           syntheticTarget.dispatchEvent(new MouseEvent('mouseup', {
             bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
           }));
           
-          actualClickTarget.click();
+           syntheticTarget.click();
           
-          actualClickTarget.dispatchEvent(new MouseEvent('click', {
+           syntheticTarget.dispatchEvent(new MouseEvent('click', {
             bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
           }));
 
@@ -1411,24 +1443,26 @@ async function executeStep(step, settings) {
             uiChangedFromSynthetic = await synMutation;
           }
 
-          if (shouldVerifyUiChange && !uiChangedFromSynthetic) {
-            throw new Error('Клик не изменил UI (меню не раскрылось)');
+           if (shouldVerifyUiChange && !uiChangedFromSynthetic) {
+             throw new Error(
+               `Клик не изменил UI (меню не раскрылось) [debug: tabId=${tabId ?? 'none'}, isSidebarMenuItem=${isSidebarMenuItem}, hasButtonDataTest=${hasButtonDataTest}, targetDt=${syntheticTarget.getAttribute?.('data-test') || ''}]`
+             );
           }
           
           // For checkboxes/radios, ensure change event fires
-          if (tagName === 'input' && (actualClickTarget.type === 'checkbox' || actualClickTarget.type === 'radio')) {
+           if (tagName === 'input' && (syntheticTarget.type === 'checkbox' || syntheticTarget.type === 'radio')) {
             try {
-              actualClickTarget.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
+               syntheticTarget.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
             } catch (e) {
-              actualClickTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+               syntheticTarget.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
             }
-            actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+             syntheticTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
           }
           
           // For custom checkboxes (div with data-test*="CheckBox"), toggle state manually
           if (isCustomCheckbox && tagName !== 'input') {
             console.log('Custom checkbox clicked, triggering change event');
-            actualClickTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+             syntheticTarget.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
           }
           
           // Clean up navigation prevention handler after a short delay
