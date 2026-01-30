@@ -1189,7 +1189,9 @@ async function executeStep(step, settings) {
             if (el === document.body) break;
             const dt = el.getAttribute?.('data-test') || '';
             const ldt = dt.toLowerCase();
-            if (ldt.includes('mainmenu-') || ldt.includes('sidebarmenuitem')) return true;
+            // Hubex sidebar uses `mainMenu-...` (camelCase) and may not contain `mainmenu-` with a dash.
+            // We intentionally match the broader `mainmenu`.
+            if (ldt.includes('mainmenu') || ldt.includes('sidebarmenuitem')) return true;
             el = el.parentElement || el.getRootNode?.()?.host || null;
           }
           return false;
@@ -1631,14 +1633,38 @@ async function executeStep(step, settings) {
 
 function findElement(selectors) {
   if (!Array.isArray(selectors)) return null;
+
+  const normalizeXPathSelector = (selector) => {
+    if (typeof selector !== 'string') return null;
+    if (!selector.startsWith('xpath')) return null;
+
+    // Support both formats:
+    // - "xpath//..." (legacy)
+    // - "xpath//*[@..." (recorded by panel in some cases)
+    let expr = selector.startsWith('xpath//')
+      ? selector.slice('xpath//'.length)
+      : selector.slice('xpath'.length);
+
+    expr = (expr || '').trim();
+    if (expr.startsWith('=')) expr = expr.slice(1).trim();
+    if (!expr) return null;
+
+    // Ensure the expression starts with "//" for document.evaluate
+    if (expr.startsWith('//')) return expr;
+    if (expr.startsWith('/')) return '//' + expr.slice(1);
+    return '//' + expr;
+  };
   
   // Priority 1: Try XPath selectors first (most reliable)
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
     
-    if (selector.startsWith('xpath//')) {
-      const xpath = selector.replace('xpath//', '//');
+    const xpath = normalizeXPathSelector(selector);
+    if (xpath) {
+      if (typeof selector === 'string' && selector.startsWith('xpath') && !selector.startsWith('xpath//')) {
+        console.debug('Normalizing XPath selector:', selector, '=>', xpath);
+      }
       try {
         const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
         if (result.singleNodeValue) {
@@ -1676,7 +1702,7 @@ function findElement(selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
     const selector = selectorArray[0];
     
-    if (!selector.startsWith('xpath//') && !selector.startsWith('text/') && 
+    if (!selector.startsWith('xpath') && !selector.startsWith('text/') && 
         !selector.startsWith('pierce/') && !selector.startsWith('aria/')) {
       try {
         const element = document.querySelector(selector);
