@@ -1170,17 +1170,20 @@ body {
   line-height: 1.4;
 }
 
-.preconditions-edit-container {
+.preconditions-edit-container,
+.workitem-edit-container {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.preconditions-edit-container .preconditions-input {
+.preconditions-edit-container .preconditions-input,
+.workitem-edit-container .input {
   width: 100%;
 }
 
-.preconditions-edit-container .btn {
+.preconditions-edit-container .btn,
+.workitem-edit-container .btn {
   align-self: flex-end;
 }
 

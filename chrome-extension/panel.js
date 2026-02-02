@@ -399,6 +399,9 @@ function initializeEventListeners() {
   
   // Save Preconditions button
   document.getElementById('savePreconditionsBtn').addEventListener('click', savePreconditions);
+  
+  // Save WorkItemID button
+  document.getElementById('saveWorkItemIdBtn').addEventListener('click', saveWorkItemId);
 }
 
 async function initializeTheme() {
@@ -441,6 +444,11 @@ async function startRecording() {
   const suiteNameInput = document.getElementById('suiteName');
   const suiteName = suiteNameInput.value.trim();
   
+  const workItemIdInput = document.getElementById('workItemId');
+  const workItemIdRaw = workItemIdInput ? workItemIdInput.value.trim() : '';
+  // Only allow digits
+  const workItemId = /^\d+$/.test(workItemIdRaw) ? parseInt(workItemIdRaw, 10) : '';
+  
   const preconditionsInput = document.getElementById('preconditions');
   const preconditions = preconditionsInput ? preconditionsInput.value.trim() : '';
 
@@ -468,6 +476,7 @@ async function startRecording() {
     title: name,
     preconditions: preconditions,
     suiteName: suiteName,
+    workItemId: workItemId,
     selectorAttribute: 'data-testid',
     createdAt: new Date().toISOString(),
     steps: [],
@@ -1366,11 +1375,45 @@ function updateHostInfo() {
     }
   }
   
+  // Update WorkItemID field
+  const workItemIdInput = document.getElementById('editWorkItemId');
+  if (workItemIdInput && state.currentRecording) {
+    workItemIdInput.value = state.currentRecording.workItemId !== undefined ? state.currentRecording.workItemId : '';
+  }
+  
   // Update preconditions field
   const preconditionsInput = document.getElementById('editPreconditions');
   if (preconditionsInput && state.currentRecording) {
     preconditionsInput.value = state.currentRecording.preconditions || '';
   }
+}
+
+// Save WorkItemID
+function saveWorkItemId() {
+  const workItemIdInput = document.getElementById('editWorkItemId');
+  if (!workItemIdInput || !state.currentRecording) return;
+  
+  const rawValue = workItemIdInput.value.trim();
+  // Only allow digits
+  const workItemId = /^\d+$/.test(rawValue) ? parseInt(rawValue, 10) : '';
+  
+  // Update current recording
+  state.currentRecording = {
+    ...state.currentRecording,
+    workItemId: workItemId
+  };
+  
+  // Save to storage
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+    saveRecordings();
+  }
+  
+  // Update code preview
+  updateCodePreview();
+  
+  alert('WorkItemID сохранён');
 }
 
 // Save preconditions
@@ -1392,6 +1435,9 @@ function savePreconditions() {
     state.recordings[recordingIndex] = state.currentRecording;
     saveRecordings();
   }
+  
+  // Update code preview
+  updateCodePreview();
   
   alert('Предусловия сохранены');
 }
@@ -1566,7 +1612,7 @@ function prepareRecordingForExport(recording) {
   }
 
   // Build result with specific field order: 
-  // createdAt, folderId, id, selectedSelectors, selectorAttribute, suiteName, title, preconditions, steps
+  // createdAt, folderId, id, selectedSelectors, selectorAttribute, suiteName, WorkItemID, title, preconditions, steps
   const result = {
     createdAt: rest.createdAt,
     folderId: rest.folderId,
@@ -1574,6 +1620,7 @@ function prepareRecordingForExport(recording) {
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
     suiteName: rest.suiteName,
+    WorkItemID: rest.workItemId !== undefined && rest.workItemId !== '' ? rest.workItemId : '',
     title: rest.title,
     preconditions: rest.preconditions !== undefined ? rest.preconditions : '',
     steps: processedSteps
@@ -1865,6 +1912,12 @@ async function handleImportFiles(event) {
       // Generate new ID and update timestamp
       recording.id = Date.now() + importedCount;
       recording.createdAt = recording.createdAt || new Date().toISOString();
+      
+      // Handle WorkItemID from import (can be in JSON as WorkItemID or workItemId)
+      if (recording.WorkItemID !== undefined) {
+        recording.workItemId = recording.WorkItemID;
+        delete recording.WorkItemID;
+      }
 
       state.recordings.push(recording);
       importedCount++;
