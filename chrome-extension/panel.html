@@ -124,7 +124,12 @@
             <option value="Материалы">Материалы</option>
             <option value="Остатки на складе">Остатки на складе</option>
             <option value="Расход">Расход</option>
-          </select>
+        </select>
+        </div>
+
+        <div class="form-group">
+          <label for="workItemId">WorkItemID в Azure (необязательно)</label>
+          <input type="text" id="workItemId" class="input" placeholder="Введите ID рабочего элемента" pattern="[0-9]*" inputmode="numeric">
         </div>
 
         <div class="form-group">
@@ -290,6 +295,15 @@
           </div>
 
           <div id="playbackSettingsTab" class="tab-content">
+            <div class="settings-section">
+              <h4>WorkItemID в Azure</h4>
+              <p class="settings-description">ID рабочего элемента в Azure DevOps</p>
+              <div class="workitem-edit-container">
+                <input type="text" id="editWorkItemId" class="input" placeholder="Введите ID..." pattern="[0-9]*" inputmode="numeric">
+                <button id="saveWorkItemIdBtn" class="btn btn-primary">Сохранить</button>
+              </div>
+            </div>
+            
             <div class="settings-section">
               <h4>Предусловия</h4>
               <p class="settings-description">Опишите предусловия для выполнения теста</p>
