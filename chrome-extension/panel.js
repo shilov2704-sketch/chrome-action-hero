@@ -1612,7 +1612,7 @@ function prepareRecordingForExport(recording) {
   }
 
   // Build result with specific field order: 
-  // createdAt, folderId, id, selectedSelectors, selectorAttribute, suiteName, WorkItemID, title, preconditions, steps
+  // createdAt, folderId, id, selectedSelectors, selectorAttribute, suiteName, relatedItemID, title, preconditions, steps
   const result = {
     createdAt: rest.createdAt,
     folderId: rest.folderId,
@@ -1620,7 +1620,7 @@ function prepareRecordingForExport(recording) {
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
     suiteName: rest.suiteName,
-    WorkItemID: rest.workItemId !== undefined && rest.workItemId !== '' ? rest.workItemId : '',
+    relatedItemID: rest.workItemId !== undefined && rest.workItemId !== '' ? rest.workItemId : '',
     title: rest.title,
     preconditions: rest.preconditions !== undefined ? rest.preconditions : '',
     steps: processedSteps
@@ -1913,8 +1913,11 @@ async function handleImportFiles(event) {
       recording.id = Date.now() + importedCount;
       recording.createdAt = recording.createdAt || new Date().toISOString();
       
-      // Handle WorkItemID from import (can be in JSON as WorkItemID or workItemId)
-      if (recording.WorkItemID !== undefined) {
+      // Handle relatedItemID from import (can be in JSON as relatedItemID, WorkItemID or workItemId)
+      if (recording.relatedItemID !== undefined) {
+        recording.workItemId = recording.relatedItemID;
+        delete recording.relatedItemID;
+      } else if (recording.WorkItemID !== undefined) {
         recording.workItemId = recording.WorkItemID;
         delete recording.WorkItemID;
       }
