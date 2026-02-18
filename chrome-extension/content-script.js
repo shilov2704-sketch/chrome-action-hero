@@ -602,8 +602,15 @@ function activateElementPicker() {
     e.stopPropagation();
 
     if (currentElement) {
-      // Use findInteractiveElement for element picker as well
-      const interactiveElement = findInteractiveElement(currentElement);
+      // For assertions: prefer the clicked element itself if it's a <span> with data-test,
+      // so we capture the exact text node rather than a parent container.
+      let interactiveElement;
+      const clickedTag = currentElement.tagName?.toLowerCase();
+      if (clickedTag === 'span' && currentElement.getAttribute('data-test')) {
+        interactiveElement = currentElement;
+      } else {
+        interactiveElement = findInteractiveElement(currentElement);
+      }
       const selectors = generateSelectors(interactiveElement);
       console.log('Selected element selectors:', selectors);
       
