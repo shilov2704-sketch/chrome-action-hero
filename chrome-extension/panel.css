@@ -949,11 +949,12 @@ body {
 .bulk-actions-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 10px 12px;
   background: var(--accent-primary);
   color: white;
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
 }
 
 .bulk-actions-bar .btn-secondary {
@@ -1235,10 +1236,11 @@ body {
 .recording-card .drag-handle {
   cursor: grab;
   font-size: 14px;
-  opacity: 0.3;
+  opacity: 0.4;
   padding: 0 4px;
   user-select: none;
   flex-shrink: 0;
+  color: var(--text-primary);
 }
 
 .recording-card:hover .drag-handle {
