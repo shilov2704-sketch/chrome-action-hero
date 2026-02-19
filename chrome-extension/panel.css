@@ -954,8 +954,7 @@ body {
   background: var(--accent-primary);
   color: white;
   border-bottom: 1px solid var(--border-color);
-  overflow-x: auto;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .bulk-actions-bar .btn {
