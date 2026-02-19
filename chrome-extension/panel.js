@@ -125,6 +125,7 @@ function initializeEventListeners() {
   
   // Bulk actions
   document.getElementById('bulkExportBtn').addEventListener('click', handleBulkExport);
+  document.getElementById('bulkChangeHostBtn').addEventListener('click', handleBulkChangeHost);
   document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
   document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
   document.getElementById('bulkSelectAllBtn').addEventListener('click', selectAll);
@@ -732,8 +733,19 @@ function renderRecordingsList() {
       f.name.toLowerCase().includes(searchQuery)
     );
   } else if (state.currentFolder) {
-    // Inside a folder - show only recordings in this folder
+    // Inside a folder - show only recordings in this folder, sorted by custom order
     displayRecordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
+    const order = state.currentFolder.recordingOrder;
+    if (order && Array.isArray(order)) {
+      displayRecordings.sort((a, b) => {
+        const iA = order.indexOf(a.id);
+        const iB = order.indexOf(b.id);
+        if (iA === -1 && iB === -1) return 0;
+        if (iA === -1) return 1;
+        if (iB === -1) return -1;
+        return iA - iB;
+      });
+    }
     displayFolders = [];
   } else {
     // Root view - show folders and recordings without folder
@@ -821,9 +833,11 @@ function renderRecordingsList() {
       folderName = folder ? folder.name : '';
     }
     
+    const isDraggable = state.currentFolder && !searchQuery;
     return `
-      <div class="recording-card ${isSelected ? 'selected' : ''} ${resultClass}" data-id="${recording.id}">
+      <div class="recording-card ${isSelected ? 'selected' : ''} ${resultClass}" data-id="${recording.id}" ${isDraggable ? 'draggable="true"' : ''}>
         <div class="recording-card-header">
+          ${isDraggable ? '<span class="drag-handle" title="Перетащите для изменения порядка">⠿</span>' : ''}
           <input type="checkbox" class="bulk-checkbox recording-checkbox" data-id="${recording.id}" ${isSelected ? 'checked' : ''}>
           <div class="recording-card-title">${recording.title}</div>
           <div class="recording-card-actions">
@@ -962,6 +976,75 @@ function renderRecordingsList() {
       await moveRecordingToRoot(recordingId);
     });
   });
+  
+  // Drag and drop reorder for recordings inside folders
+  if (state.currentFolder && !searchQuery) {
+    let draggedId = null;
+    
+    container.querySelectorAll('.recording-card[draggable="true"]').forEach(card => {
+      card.addEventListener('dragstart', (e) => {
+        draggedId = parseInt(card.dataset.id);
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggedId);
+      });
+      
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        container.querySelectorAll('.recording-card').forEach(c => c.classList.remove('drag-over'));
+      });
+      
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const targetId = parseInt(card.dataset.id);
+        if (targetId !== draggedId) {
+          container.querySelectorAll('.recording-card').forEach(c => c.classList.remove('drag-over'));
+          card.classList.add('drag-over');
+        }
+      });
+      
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+      
+      card.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        const fromId = parseInt(e.dataTransfer.getData('text/plain'));
+        const toId = parseInt(card.dataset.id);
+        if (fromId === toId) return;
+        
+        // Get current order
+        const folderRecordings = state.recordings.filter(r => r.folderId === state.currentFolder.id);
+        let order = state.currentFolder.recordingOrder ? [...state.currentFolder.recordingOrder] : folderRecordings.map(r => r.id);
+        
+        // Ensure all current recordings are in the order array
+        for (const rec of folderRecordings) {
+          if (!order.includes(rec.id)) order.push(rec.id);
+        }
+        // Remove IDs that no longer exist
+        order = order.filter(id => folderRecordings.some(r => r.id === id));
+        
+        const fromIndex = order.indexOf(fromId);
+        const toIndex = order.indexOf(toId);
+        if (fromIndex === -1 || toIndex === -1) return;
+        
+        // Move item
+        order.splice(fromIndex, 1);
+        order.splice(toIndex, 0, fromId);
+        
+        // Save order to folder
+        state.currentFolder.recordingOrder = order;
+        const folderIndex = state.folders.findIndex(f => f.id === state.currentFolder.id);
+        if (folderIndex !== -1) {
+          state.folders[folderIndex] = state.currentFolder;
+        }
+        await saveFolders();
+        renderRecordingsList();
+      });
+    });
+  }
 }
 
 function renderStepsList() {
@@ -2217,6 +2300,77 @@ async function exportFolderAsZip(folder, recordings) {
   }, 1000);
 }
 
+// Bulk Change Host
+async function handleBulkChangeHost() {
+  if (state.selectedItems.length === 0) return;
+  
+  const newHost = prompt('Введите новый хост для выбранных записей:\n(например: https://stg-app.hubex.ru)');
+  if (!newHost || !newHost.trim()) return;
+  
+  const normalizedHost = newHost.trim().replace(/\/$/, '');
+  
+  // Validate URL
+  try {
+    new URL(normalizedHost);
+  } catch (e) {
+    alert('Некорректный URL хоста. Пример: https://stg-app.hubex.ru');
+    return;
+  }
+  
+  // Collect all recording IDs (including recordings inside selected folders)
+  const recordingIds = new Set();
+  
+  for (const item of state.selectedItems) {
+    if (item.type === 'recording') {
+      recordingIds.add(item.id);
+    } else if (item.type === 'folder') {
+      state.recordings
+        .filter(r => r.folderId === item.id)
+        .forEach(r => recordingIds.add(r.id));
+    }
+  }
+  
+  let updatedCount = 0;
+  
+  for (const recId of recordingIds) {
+    const recording = state.recordings.find(r => r.id === recId);
+    if (!recording) continue;
+    
+    const currentHost = getCurrentHostFromRecording(recording);
+    if (!currentHost) continue;
+    
+    // Replace host in all steps
+    let changed = false;
+    recording.steps = recording.steps.map(step => {
+      const newStep = { ...step };
+      
+      if (newStep.url && newStep.url.startsWith(currentHost)) {
+        newStep.url = newStep.url.replace(currentHost, normalizedHost);
+        changed = true;
+      }
+      
+      if (newStep.assertedEvents && Array.isArray(newStep.assertedEvents)) {
+        newStep.assertedEvents = newStep.assertedEvents.map(event => {
+          if (event.url && event.url.startsWith(currentHost)) {
+            changed = true;
+            return { ...event, url: event.url.replace(currentHost, normalizedHost) };
+          }
+          return event;
+        });
+      }
+      
+      return newStep;
+    });
+    
+    if (changed) updatedCount++;
+  }
+  
+  await saveRecordings();
+  clearSelection();
+  
+  alert(`Хост заменён в ${updatedCount} записях`);
+}
+
 async function handleBulkDelete() {
   if (state.selectedItems.length === 0) return;
   
@@ -2331,8 +2485,21 @@ async function playFolder(folderId) {
   const folder = state.folders.find(f => f.id === folderId);
   if (!folder) return;
   
-  const recordings = state.recordings.filter(r => r.folderId === folderId);
+  let recordings = state.recordings.filter(r => r.folderId === folderId);
   if (recordings.length === 0) return;
+  
+  // Sort by custom order if defined
+  const order = folder.recordingOrder;
+  if (order && Array.isArray(order)) {
+    recordings.sort((a, b) => {
+      const iA = order.indexOf(a.id);
+      const iB = order.indexOf(b.id);
+      if (iA === -1 && iB === -1) return 0;
+      if (iA === -1) return 1;
+      if (iB === -1) return -1;
+      return iA - iB;
+    });
+  }
   
   state.isPlayingFolder = true;
   state.playingFolderId = folderId;
