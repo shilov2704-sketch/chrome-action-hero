@@ -597,9 +597,22 @@ function activateElementPicker() {
     }
   };
 
-  const handleClick = (e) => {
+  // Capture-phase listener on document to intercept ALL clicks (even on elements above the overlay)
+  const handleDocumentClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    // Use the element we tracked from mousemove (under the overlay)
+    // If overlay was bypassed (e.g. modal with higher z-index), get element directly
+    if (!currentElement || currentElement === overlay || currentElement === highlight) {
+      // Try to get element under click point
+      overlay.style.display = 'none';
+      highlight.style.display = 'none';
+      currentElement = document.elementFromPoint(e.clientX, e.clientY);
+      overlay.style.display = '';
+      highlight.style.display = '';
+    }
 
     if (currentElement) {
       // For assertions: prefer the clicked element itself if it's a <span> with data-test,
@@ -658,15 +671,15 @@ function activateElementPicker() {
     }
 
     // Clean up
+    document.removeEventListener('click', handleDocumentClick, true);
     overlay.removeEventListener('mousemove', handleMouseMove);
-    overlay.removeEventListener('click', handleClick);
     document.body.removeChild(overlay);
     document.body.removeChild(highlight);
     isPickingElement = false;
   };
 
   overlay.addEventListener('mousemove', handleMouseMove);
-  overlay.addEventListener('click', handleClick);
+  document.addEventListener('click', handleDocumentClick, true);
 }
 
 function stopReplay() {
