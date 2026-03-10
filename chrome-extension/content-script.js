@@ -597,6 +597,18 @@ function activateElementPicker() {
     }
   };
 
+  // Block mousedown/pointerdown/mouseup/pointerup to prevent modals from closing
+  const blockEvent = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  };
+
+  document.addEventListener('mousedown', blockEvent, true);
+  document.addEventListener('mouseup', blockEvent, true);
+  document.addEventListener('pointerdown', blockEvent, true);
+  document.addEventListener('pointerup', blockEvent, true);
+
   // Capture-phase listener on document to intercept ALL clicks (even on elements above the overlay)
   const handleDocumentClick = (e) => {
     e.preventDefault();
@@ -670,7 +682,11 @@ function activateElementPicker() {
       });
     }
 
-    // Clean up
+    // Clean up all blocked events
+    document.removeEventListener('mousedown', blockEvent, true);
+    document.removeEventListener('mouseup', blockEvent, true);
+    document.removeEventListener('pointerdown', blockEvent, true);
+    document.removeEventListener('pointerup', blockEvent, true);
     document.removeEventListener('click', handleDocumentClick, true);
     overlay.removeEventListener('mousemove', handleMouseMove);
     document.body.removeChild(overlay);
