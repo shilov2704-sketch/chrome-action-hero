@@ -442,8 +442,9 @@ async function startRecording() {
   const nameInput = document.getElementById('recordingName');
   const name = nameInput.value.trim();
   
-  const suiteNameInput = document.getElementById('suiteName');
-  const suiteName = suiteNameInput.value.trim();
+  const suiteNameWeb = document.getElementById('suiteNameWeb').value.trim();
+  const suiteNameAdmin = document.getElementById('suiteNameAdmin').value.trim();
+  const suiteName = suiteNameWeb || suiteNameAdmin;
   
   const workItemIdInput = document.getElementById('workItemId');
   const workItemIdRaw = workItemIdInput ? workItemIdInput.value.trim() : '';
