@@ -531,7 +531,22 @@ function generateXPathNoDataTest(element, eventType = null) {
     return `xpath${xpath}`;
   }
   
-  // Strategy 2: Input elements - use placeholder or label
+  // Strategy 2: Element contains a nested span/text with meaningful text (e.g. <a> with <span>Text</span>)
+  const nestedSpan = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
+  if (nestedSpan) {
+    const spanText = (nestedSpan.textContent || '').trim();
+    if (spanText && spanText.length > 0 && spanText.length < 80) {
+      const nestedTag = nestedSpan.tagName.toLowerCase();
+      const escapedText = escapeXPathString(spanText);
+      let xpath = `//${tagName}[.//${nestedTag}[normalize-space(text())=${escapedText}]]`;
+      if (!isXPathUnique(xpath)) {
+        xpath = addParentContext(element, xpath);
+      }
+      return `xpath${xpath}`;
+    }
+  }
+  
+  // Strategy 3: Input elements - use placeholder or label
   if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
     return generateXPathForInput(element);
   }
