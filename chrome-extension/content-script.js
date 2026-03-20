@@ -537,8 +537,39 @@ function generateXPathNoDataTest(element, eventType = null) {
   if (dataId) {
     let xpath = `//*[@data-id='${dataId}']`;
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
-  }
-  
+   }
+   
+   // Strategy 0b2: Specific div with exact class 'css-tnrbt8 e1mf4tm34'
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass === 'css-tnrbt8 e1mf4tm34') {
+       let xpath = `//div[@class='css-tnrbt8 e1mf4tm34']`;
+       if (isXPathUnique(xpath)) return `xpath${xpath}`;
+     }
+   }
+   
+   // Strategy 0b3: Sibling div with title attribute - //div[@title='..']/..//div[@class='...']
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass) {
+       // Walk up to find a parent whose child has a title attribute
+       let parent = element.parentElement;
+       let depth = 0;
+       while (parent && parent !== document.body && depth < 4) {
+         const titledChild = parent.querySelector(':scope > div[title]');
+         if (titledChild && titledChild !== element) {
+           const titleVal = titledChild.getAttribute('title');
+           if (titleVal) {
+             let xpath = `//div[@title='${titleVal}']/..//div[@class='${elClass}']`;
+             if (isXPathUnique(xpath)) return `xpath${xpath}`;
+           }
+         }
+         parent = parent.parentElement;
+         depth++;
+       }
+     }
+   }
+
   // Strategy 0c: Check for sibling or child span with color+type+class attributes (only when span has NO text)
   if (tagName === 'div' || tagName === 'span' || tagName === 'p') {
     // Check in current element AND parent element for span[color][type]
