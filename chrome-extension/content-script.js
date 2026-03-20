@@ -27,9 +27,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-function startRecording(selectors) {
+function startRecording(selectors, noDataTestId = false) {
   isRecording = true;
   selectedSelectors = selectors;
+  noDataTestIdMode = noDataTestId;
   recordedEvents = [];
 
   // Record initial viewport
