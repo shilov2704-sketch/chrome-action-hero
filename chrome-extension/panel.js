@@ -479,6 +479,7 @@ async function startRecording() {
     suiteName: suiteName,
     workItemId: workItemId,
     selectorAttribute: 'data-testid',
+    noDataTestId: document.getElementById('noDataTestIdSwitch')?.checked || false,
     createdAt: new Date().toISOString(),
     steps: [],
     selectedSelectors: [...state.selectedSelectors]
@@ -492,6 +493,20 @@ async function startRecording() {
 
   document.getElementById('currentRecordingName').textContent = name;
   
+  // Show no-data-testid indicator in recording view
+  const recordingIndicator = document.querySelector('.recording-indicator');
+  if (state.currentRecording.noDataTestId && recordingIndicator) {
+    let badge = document.getElementById('recordingNoDataTestIdBadge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'recordingNoDataTestIdBadge';
+      badge.className = 'no-datatestid-badge';
+      badge.textContent = '⚡ Без data-testid';
+      badge.style.marginLeft = '8px';
+      recordingIndicator.parentElement.insertBefore(badge, recordingIndicator.nextSibling);
+    }
+  }
+  
   // Clear the steps list UI immediately
   const stepsContainer = document.getElementById('stepsList');
   if (stepsContainer) {
@@ -504,7 +519,8 @@ async function startRecording() {
   // Inject content script and start recording
   await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
-    selectors: state.selectedSelectors
+    selectors: state.selectedSelectors,
+    noDataTestId: state.currentRecording.noDataTestId
   });
 }
 
@@ -568,6 +584,7 @@ async function continueRecording() {
   await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
     selectors: state.currentRecording.selectedSelectors || state.selectedSelectors,
+    noDataTestId: state.currentRecording.noDataTestId || false,
     skipInitialSteps: true  // Flag to skip setViewport and navigate
   });
 }
@@ -597,7 +614,8 @@ function handleRecordedEvent(message) {
 async function activateElementPicker() {
   const tabId = chrome.devtools.inspectedWindow.tabId;
   await chrome.tabs.sendMessage(tabId, {
-    action: 'activateElementPicker'
+    action: 'activateElementPicker',
+    noDataTestId: state.currentRecording?.noDataTestId || false
   });
 }
 
@@ -847,6 +865,7 @@ function renderRecordingsList() {
         </div>
         <div class="recording-card-meta">
           ${folderName ? `<span class="folder-badge">📁 ${folderName}</span>` : ''}
+          ${recording.noDataTestId ? '<span class="no-datatestid-badge">⚡ Без data-testid</span>' : ''}
           <span>📝 ${recording.steps.length} шагов</span>
           <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
@@ -1282,8 +1301,22 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
 }
 
 function renderPlaybackView() {
-  document.getElementById('playbackRecordingName').textContent = state.currentRecording.title;
+  const nameEl = document.getElementById('playbackRecordingName');
+  nameEl.textContent = state.currentRecording.title;
   
+  // Show/hide no-data-testid badge
+  let badge = document.getElementById('noDataTestIdBadge');
+  if (state.currentRecording.noDataTestId) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'noDataTestIdBadge';
+      badge.className = 'no-datatestid-badge';
+      badge.textContent = '⚡ Без data-testid';
+      nameEl.parentElement.insertBefore(badge, nameEl.nextSibling);
+    }
+  } else if (badge) {
+    badge.remove();
+  }
   const container = document.getElementById('playbackStepsList');
   const recordingId = state.currentRecording.id;
   // Use folder step results or single playback step results
@@ -1702,6 +1735,7 @@ function prepareRecordingForExport(recording) {
     id: rest.id,
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
+    noDataTestId: rest.noDataTestId || false,
     suiteName: rest.suiteName,
     relatedItemID: rest.workItemId !== undefined && rest.workItemId !== '' ? rest.workItemId : '',
     title: rest.title,
