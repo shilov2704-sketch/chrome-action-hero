@@ -1734,6 +1734,7 @@ function prepareRecordingForExport(recording) {
     id: rest.id,
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
+    noDataTestId: rest.noDataTestId || false,
     suiteName: rest.suiteName,
     relatedItemID: rest.workItemId !== undefined && rest.workItemId !== '' ? rest.workItemId : '',
     title: rest.title,
