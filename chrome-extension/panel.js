@@ -1286,8 +1286,22 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
 }
 
 function renderPlaybackView() {
-  document.getElementById('playbackRecordingName').textContent = state.currentRecording.title;
+  const nameEl = document.getElementById('playbackRecordingName');
+  nameEl.textContent = state.currentRecording.title;
   
+  // Show/hide no-data-testid badge
+  let badge = document.getElementById('noDataTestIdBadge');
+  if (state.currentRecording.noDataTestId) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'noDataTestIdBadge';
+      badge.className = 'no-datatestid-badge';
+      badge.textContent = '⚡ Без data-testid';
+      nameEl.parentElement.insertBefore(badge, nameEl.nextSibling);
+    }
+  } else if (badge) {
+    badge.remove();
+  }
   const container = document.getElementById('playbackStepsList');
   const recordingId = state.currentRecording.id;
   // Use folder step results or single playback step results
