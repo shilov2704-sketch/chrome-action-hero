@@ -566,7 +566,7 @@ function generateXPathNoDataTest(element, eventType = null) {
    // Strategy 0b2b: Div with class 'css-tytyda e1snk6cc2' inside label with span text
    if (tagName === 'div') {
      const elClass = element.getAttribute('class') || '';
-     if (elClass === 'css-tytyda e1snk6cc2') {
+     if (elClass === 'css-tytyda e1snk6cc2' || elClass === 'css-1scjdh6 e1snk6cc2') {
        // Walk up to find a parent <label>
        let labelEl = element.closest('label');
        if (labelEl) {
