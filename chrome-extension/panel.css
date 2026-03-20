@@ -1270,12 +1270,13 @@ body {
 .switch-label {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
+  line-height: 20px;
 }
 
 .switch-container {
