@@ -551,7 +551,7 @@ function generateXPathNoDataTest(element, eventType = null) {
     return generateXPathForInput(element);
   }
   
-  // Strategy 3: Element has aria-label or title
+  // Strategy 4: Element has aria-label or title
   const ariaLabel = element.getAttribute('aria-label');
   if (ariaLabel) {
     let xpath = `//${tagName}[@aria-label=${escapeXPathString(ariaLabel)}]`;
@@ -570,13 +570,7 @@ function generateXPathNoDataTest(element, eventType = null) {
     return `xpath${xpath}`;
   }
   
-  // Strategy 4: Element contains SVG — use SVG identification
-  const svg = element.querySelector('svg') || (tagName === 'svg' ? element : null);
-  if (svg) {
-    return generateXPathBySvg(element, svg);
-  }
-  
-  // Strategy 5: Use element's textContent (includes nested text)
+  // Strategy 5: Use element's full textContent (includes nested text)
   const fullText = (element.textContent || '').trim();
   if (fullText && fullText.length > 0 && fullText.length < 80) {
     const escapedText = escapeXPathString(fullText);
@@ -587,7 +581,13 @@ function generateXPathNoDataTest(element, eventType = null) {
     return `xpath${xpath}`;
   }
   
-  // Strategy 6: Positional fallback with parent context
+  // Strategy 6: Element contains SVG — use SVG identification (fallback when no text found)
+  const svg = element.querySelector('svg') || (tagName === 'svg' ? element : null);
+  if (svg) {
+    return generateXPathBySvg(element, svg);
+  }
+  
+  // Strategy 7: Positional fallback with parent context
   return generatePositionalXPath(element);
 }
 
