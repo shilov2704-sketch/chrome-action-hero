@@ -265,7 +265,9 @@ function handleInput(event) {
   
   // Set new debounce timer (500ms)
   const timer = setTimeout(() => {
-    const selectors = generateSelectors(target, 'change');
+    const selectors = noDataTestIdMode 
+      ? generateSelectorsNoDataTest(target, 'change') 
+      : generateSelectors(target, 'change');
     
     // Handle contenteditable and other elements
     const value = target.value !== undefined ? target.value : target.textContent;
