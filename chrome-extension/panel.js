@@ -57,6 +57,8 @@ async function saveFolders() {
   await chrome.storage.local.set({ folders: state.folders });
 }
 
+// Event Listeners
+function initializeEventListeners() {
   // Mutual exclusivity for TestSuite selects
   document.getElementById('suiteNameWeb').addEventListener('change', (e) => {
     if (e.target.value) document.getElementById('suiteNameAdmin').value = '';
@@ -65,8 +67,6 @@ async function saveFolders() {
     if (e.target.value) document.getElementById('suiteNameWeb').value = '';
   });
 
-// Event Listeners
-function initializeEventListeners() {
   // Navigation
   document.getElementById('createRecordingBtn').addEventListener('click', () => {
     state.currentView = 'create';
