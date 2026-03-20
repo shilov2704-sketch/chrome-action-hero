@@ -525,30 +525,60 @@ function generateXPathNoDataTest(element, eventType = null) {
   const tagName = element.tagName?.toLowerCase();
   if (!tagName) return null;
   
-  // Strategy 1: Element has visible text (buttons, links, spans, divs, etc.)
+  // Strategy 0: Element has data-tip attribute
+  const dataTip = element.getAttribute('data-tip');
+  if (dataTip) {
+    let xpath = `//*[@data-tip='${dataTip}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+  }
+  
+  // Strategy 0b: Element has data-id attribute
+  const dataId = element.getAttribute('data-id');
+  if (dataId) {
+    let xpath = `//*[@data-id='${dataId}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+  }
+  
+  // Strategy 1: Element has visible direct text (buttons, links, spans, divs)
   const directText = getDirectTextContent(element);
   
   if (directText && directText.length > 0 && directText.length < 80) {
     const escapedText = escapeXPathString(directText);
     
-    // Build XPath with tag and text
-    let xpath = `//${tagName}[normalize-space(text())=${escapedText}]`;
+    // If element also has a meaningful class, combine text + class for robustness
+    const cls = element.getAttribute('class');
+    const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
     
-    // Check uniqueness, if not unique add parent context
-    if (!isXPathUnique(xpath)) {
-      xpath = addParentContext(element, xpath);
+    if (mainClass) {
+      let xpath = `//${tagName}[contains(@class, '${mainClass}') and normalize-space(text())=${escapedText}]`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
     }
     
+    let xpath = `//${tagName}[normalize-space(text())=${escapedText}]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    
+    // Not unique — add parent context
+    xpath = addParentContext(element, xpath);
     return `xpath${xpath}`;
   }
   
-  // Strategy 2: Element contains a nested span/text with meaningful text (e.g. <a> with <span>Text</span>)
-  const nestedSpan = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
-  if (nestedSpan) {
-    const spanText = (nestedSpan.textContent || '').trim();
+  // Strategy 2: Element contains nested span/text (e.g. <a> with <span>Text</span>)
+  const nestedTextEl = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
+  if (nestedTextEl) {
+    const spanText = (nestedTextEl.textContent || '').trim();
     if (spanText && spanText.length > 0 && spanText.length < 80) {
-      const nestedTag = nestedSpan.tagName.toLowerCase();
+      const nestedTag = nestedTextEl.tagName.toLowerCase();
       const escapedText = escapeXPathString(spanText);
+      
+      // If element has a class, combine class + nested text
+      const cls = element.getAttribute('class');
+      const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+      
+      if (mainClass) {
+        let xpath = `//${tagName}[contains(@class, '${mainClass}') and .//${nestedTag}[contains(text(), ${escapedText})]]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
       let xpath = `//${tagName}[.//${nestedTag}[normalize-space(text())=${escapedText}]]`;
       if (!isXPathUnique(xpath)) {
         xpath = addParentContext(element, xpath);
@@ -557,48 +587,82 @@ function generateXPathNoDataTest(element, eventType = null) {
     }
   }
   
-  // Strategy 3: Input elements - use placeholder or label
+  // Strategy 3: Input/textarea/select — find associated label via sibling/parent structure
   if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
     return generateXPathForInput(element);
   }
   
-  // Strategy 4: Element has aria-label or title
+  // Strategy 4: aria-label or title
   const ariaLabel = element.getAttribute('aria-label');
   if (ariaLabel) {
     let xpath = `//${tagName}[@aria-label=${escapeXPathString(ariaLabel)}]`;
-    if (!isXPathUnique(xpath)) {
-      xpath = addParentContext(element, xpath);
-    }
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
     return `xpath${xpath}`;
   }
   
   const title = element.getAttribute('title');
   if (title) {
     let xpath = `//${tagName}[@title=${escapeXPathString(title)}]`;
-    if (!isXPathUnique(xpath)) {
-      xpath = addParentContext(element, xpath);
-    }
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
     return `xpath${xpath}`;
   }
   
-  // Strategy 5: Use element's full textContent (includes nested text)
+  // Strategy 5: Full textContent (includes nested)
   const fullText = (element.textContent || '').trim();
   if (fullText && fullText.length > 0 && fullText.length < 80) {
     const escapedText = escapeXPathString(fullText);
     let xpath = `//${tagName}[normalize-space()=${escapedText}]`;
-    if (!isXPathUnique(xpath)) {
-      xpath = addParentContext(element, xpath);
-    }
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
     return `xpath${xpath}`;
   }
   
-  // Strategy 6: Element contains SVG — use SVG identification (fallback when no text found)
+  // Strategy 6: SVG identification
   const svg = element.querySelector('svg') || (tagName === 'svg' ? element : null);
   if (svg) {
     return generateXPathBySvg(element, svg);
   }
   
-  // Strategy 7: Positional fallback with parent context
+  // Strategy 7: Element has a class — use class + positional child index
+  const cls = element.getAttribute('class');
+  const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+  if (mainClass) {
+    // Try to find parent with text to provide context
+    let parent = element.parentElement;
+    let depth = 0;
+    while (parent && parent !== document.body && depth < 4) {
+      const parentText = getDirectTextContent(parent);
+      if (parentText && parentText.length > 0 && parentText.length < 80) {
+        const parentTag = parent.tagName.toLowerCase();
+        const escapedParentText = escapeXPathString(parentText);
+        // Calculate child index
+        const siblings = Array.from(parent.children);
+        const idx = siblings.indexOf(element) + 1;
+        let xpath = `//${parentTag}[normalize-space(text())=${escapedParentText}]/${tagName}[${idx}]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
+      const parentFullText = (parent.textContent || '').trim();
+      const parentClass = parent.getAttribute('class');
+      const parentMainClass = parentClass ? parentClass.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+      if (parentMainClass && parentFullText && parentFullText.length < 60) {
+        const parentTag = parent.tagName.toLowerCase();
+        const siblings = Array.from(parent.children);
+        const idx = siblings.indexOf(element) + 1;
+        let xpath = `//${parentTag}[contains(@class, '${parentMainClass}')]/${tagName}[${idx}]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
+      parent = parent.parentElement;
+      depth++;
+    }
+    
+    let xpath = `//${tagName}[contains(@class, '${mainClass}')]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 8: Positional fallback
   return generatePositionalXPath(element);
 }
 
@@ -616,7 +680,6 @@ function getDirectTextContent(element) {
 function escapeXPathString(str) {
   if (!str.includes("'")) return `'${str}'`;
   if (!str.includes('"')) return `"${str}"`;
-  // Contains both — use concat
   const parts = str.split("'").map(p => `'${p}'`);
   return `concat(${parts.join(`,"'",`)})`;
 }
@@ -631,12 +694,24 @@ function isXPathUnique(xpath) {
 }
 
 function addParentContext(element, childXPath) {
-  // Try to find a meaningful parent to scope the xpath
   let parent = element.parentElement;
   let depth = 0;
   
   while (parent && parent !== document.body && depth < 5) {
     const parentTag = parent.tagName?.toLowerCase();
+    
+    // Try parent with id
+    if (parent.id) {
+      const scopedXpath = `//${parentTag}[@id='${parent.id}']${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+      if (isXPathUnique(scopedXpath)) return scopedXpath;
+    }
+    
+    // Try parent with data-tip
+    const dataTip = parent.getAttribute('data-tip');
+    if (dataTip) {
+      const scopedXpath = `//*[@data-tip='${dataTip}']${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+      if (isXPathUnique(scopedXpath)) return scopedXpath;
+    }
     
     // Try parent with role attribute
     const role = parent.getAttribute('role');
@@ -662,24 +737,16 @@ function addParentContext(element, childXPath) {
       if (isXPathUnique(scopedXpath)) return scopedXpath;
     }
     
-    // Try parent with id
-    if (parent.id) {
-      const scopedXpath = `//${parentTag}[@id='${parent.id}']${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
-      if (isXPathUnique(scopedXpath)) return scopedXpath;
-    }
-    
     parent = parent.parentElement;
     depth++;
   }
   
-  // Fallback: add positional index among siblings
+  // Fallback: positional index
   const siblings = element.parentElement 
     ? Array.from(element.parentElement.children).filter(e => e.tagName === element.tagName)
     : [];
   if (siblings.length > 1) {
     const idx = siblings.indexOf(element) + 1;
-    // Replace the leading // with indexed version
-    const baseTag = element.tagName.toLowerCase();
     return `(${childXPath})[${idx}]`;
   }
   
@@ -703,16 +770,13 @@ function generateXPathForInput(element) {
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
   }
   
-  // Try associated label
+  // Try associated label via for attribute
   if (element.id) {
     const label = document.querySelector(`label[for='${element.id}']`);
     if (label) {
       const labelText = label.textContent?.trim();
       if (labelText) {
         let xpath = `//label[normalize-space()=${escapeXPathString(labelText)}]//${tagName}`;
-        if (isXPathUnique(xpath)) return `xpath${xpath}`;
-        // Try sibling approach
-        xpath = `//label[normalize-space()=${escapeXPathString(labelText)}]/following::${tagName}[1]`;
         if (isXPathUnique(xpath)) return `xpath${xpath}`;
       }
     }
@@ -728,13 +792,52 @@ function generateXPathForInput(element) {
     }
   }
   
+  // Try sibling/parent structure: find nearby label/span that describes this input
+  // Pattern: <div> <label><span>Label text</span></label> <textarea> </div>
+  let container = element.parentElement;
+  let searchDepth = 0;
+  while (container && container !== document.body && searchDepth < 4) {
+    // Look for label or span with descriptive text inside this container
+    const labelEl = container.querySelector('label span, label, .label, [class*="label"]');
+    if (labelEl) {
+      const labelText = (labelEl.textContent || '').trim();
+      if (labelText && labelText.length > 0 && labelText.length < 80) {
+        const containerTag = container.tagName.toLowerCase();
+        const escapedLabel = escapeXPathString(labelText);
+        
+        // Build: //div[.//span[contains(., 'Label')]]//textarea[contains(@class, 'cls')]
+        const labelTag = labelEl.tagName.toLowerCase();
+        const cls = element.getAttribute('class');
+        const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+        
+        if (mainClass) {
+          let xpath = `//${containerTag}[.//${labelTag}[contains(., ${escapedLabel})]]//${tagName}[contains(@class, '${mainClass}')]`;
+          if (isXPathUnique(xpath)) return `xpath${xpath}`;
+        }
+        
+        let xpath = `//${containerTag}[.//${labelTag}[contains(., ${escapedLabel})]]//${tagName}`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+    }
+    container = container.parentElement;
+    searchDepth++;
+  }
+  
   // Try type attribute for inputs
   if (tagName === 'input') {
     const type = element.getAttribute('type') || 'text';
     let xpath = `//input[@type='${type}']`;
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
-    
-    // Add parent context
+    xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Try class-based
+  const cls = element.getAttribute('class');
+  const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+  if (mainClass) {
+    let xpath = `//${tagName}[contains(@class, '${mainClass}')]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
     xpath = addParentContext(element, xpath);
     return `xpath${xpath}`;
   }
