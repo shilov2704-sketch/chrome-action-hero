@@ -4,6 +4,7 @@ let selectedSelectors = [];
 let recordedEvents = [];
 let isPickingElement = false;
 let isReplaying = false;
+let noDataTestIdMode = false;
 let inputDebounceTimers = new Map();
 
 // Listen for messages from panel
