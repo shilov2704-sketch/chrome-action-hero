@@ -493,6 +493,20 @@ async function startRecording() {
 
   document.getElementById('currentRecordingName').textContent = name;
   
+  // Show no-data-testid indicator in recording view
+  const recordingIndicator = document.querySelector('.recording-indicator');
+  if (state.currentRecording.noDataTestId && recordingIndicator) {
+    let badge = document.getElementById('recordingNoDataTestIdBadge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'recordingNoDataTestIdBadge';
+      badge.className = 'no-datatestid-badge';
+      badge.textContent = '⚡ Без data-testid';
+      badge.style.marginLeft = '8px';
+      recordingIndicator.parentElement.insertBefore(badge, recordingIndicator.nextSibling);
+    }
+  }
+  
   // Clear the steps list UI immediately
   const stepsContainer = document.getElementById('stepsList');
   if (stepsContainer) {
