@@ -865,6 +865,7 @@ function renderRecordingsList() {
         </div>
         <div class="recording-card-meta">
           ${folderName ? `<span class="folder-badge">📁 ${folderName}</span>` : ''}
+          ${recording.noDataTestId ? '<span class="no-datatestid-badge">⚡ Без data-testid</span>' : ''}
           <span>📝 ${recording.steps.length} шагов</span>
           <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
