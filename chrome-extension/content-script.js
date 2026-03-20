@@ -982,12 +982,16 @@ function activateElementPicker() {
       // so we capture the exact text node rather than a parent container.
       let interactiveElement;
       const clickedTag = currentElement.tagName?.toLowerCase();
-      if (clickedTag === 'span' && currentElement.getAttribute('data-test')) {
+      if (noDataTestIdMode) {
+        interactiveElement = findInteractiveElementNoDataTest(currentElement);
+      } else if (clickedTag === 'span' && currentElement.getAttribute('data-test')) {
         interactiveElement = currentElement;
       } else {
         interactiveElement = findInteractiveElement(currentElement);
       }
-      const selectors = generateSelectors(interactiveElement);
+      const selectors = noDataTestIdMode 
+        ? generateSelectorsNoDataTest(interactiveElement) 
+        : generateSelectors(interactiveElement);
       console.log('Selected element selectors:', selectors);
       
       // Derive value, text and a human-readable name (label text if available)
