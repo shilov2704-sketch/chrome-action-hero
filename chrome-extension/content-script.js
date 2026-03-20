@@ -438,6 +438,347 @@ function generateXPathSelector(element, eventType = null) {
   return null;
 }
 
+// ============ No data-testid mode functions ============
+
+function findInteractiveElementNoDataTest(element) {
+  const leafTags = ['svg', 'path', 'span', 'img', 'i', 'use', 'circle', 'rect', 'line', 'polygon', 'polyline', 'ellipse', 'g', 'strong', 'em', 'b', 'small'];
+  const interactiveTags = ['a', 'button', 'input', 'textarea', 'select'];
+  
+  let current = element;
+  
+  // Step 1: If clicked on a leaf, walk up to find an interactive or meaningful parent
+  while (current && current !== document.body) {
+    const tagName = current.tagName?.toLowerCase();
+    
+    // If we hit an interactive element, use it
+    if (interactiveTags.includes(tagName)) {
+      return current;
+    }
+    
+    // If element has role that makes it interactive
+    const role = current.getAttribute('role');
+    if (role === 'button' || role === 'tab' || role === 'menuitem' || role === 'option' || 
+        role === 'checkbox' || role === 'radio' || role === 'link' || role === 'switch') {
+      return current;
+    }
+    
+    // If element has click handler attributes or tabindex
+    if (current.hasAttribute('onclick') || current.hasAttribute('tabindex')) {
+      return current;
+    }
+    
+    // If it's a leaf tag, keep going up
+    if (leafTags.includes(tagName)) {
+      current = current.parentElement;
+      continue;
+    }
+    
+    // Non-leaf, non-interactive — check if this div/span has visible text and is likely a clickable container
+    // Walk up a bit more to see if there's an interactive parent nearby
+    let parent = current.parentElement;
+    let depth = 0;
+    while (parent && parent !== document.body && depth < 3) {
+      const parentTag = parent.tagName?.toLowerCase();
+      if (interactiveTags.includes(parentTag)) return parent;
+      const parentRole = parent.getAttribute('role');
+      if (parentRole === 'button' || parentRole === 'tab' || parentRole === 'menuitem') return parent;
+      parent = parent.parentElement;
+      depth++;
+    }
+    
+    // No interactive parent found nearby — use current element
+    return current;
+  }
+  
+  return element;
+}
+
+function generateSelectorsNoDataTest(element, eventType = null) {
+  const selectors = [];
+  
+  // Always generate the text-based XPath
+  const xpath = generateXPathNoDataTest(element, eventType);
+  if (xpath) selectors.push([xpath]);
+  
+  // Also generate text selector for replay fallback
+  const textSelector = generateTextSelector(element);
+  if (textSelector) selectors.push([textSelector]);
+  
+  return selectors;
+}
+
+function generateXPathNoDataTest(element, eventType = null) {
+  const tagName = element.tagName?.toLowerCase();
+  if (!tagName) return null;
+  
+  // Strategy 1: Element has visible text (buttons, links, spans, divs, etc.)
+  const directText = getDirectTextContent(element);
+  
+  if (directText && directText.length > 0 && directText.length < 80) {
+    const escapedText = escapeXPathString(directText);
+    
+    // Build XPath with tag and text
+    let xpath = `//${tagName}[normalize-space(text())=${escapedText}]`;
+    
+    // Check uniqueness, if not unique add parent context
+    if (!isXPathUnique(xpath)) {
+      xpath = addParentContext(element, xpath);
+    }
+    
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 2: Input elements - use placeholder or label
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return generateXPathForInput(element);
+  }
+  
+  // Strategy 3: Element has aria-label or title
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) {
+    let xpath = `//${tagName}[@aria-label=${escapeXPathString(ariaLabel)}]`;
+    if (!isXPathUnique(xpath)) {
+      xpath = addParentContext(element, xpath);
+    }
+    return `xpath${xpath}`;
+  }
+  
+  const title = element.getAttribute('title');
+  if (title) {
+    let xpath = `//${tagName}[@title=${escapeXPathString(title)}]`;
+    if (!isXPathUnique(xpath)) {
+      xpath = addParentContext(element, xpath);
+    }
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 4: Element contains SVG — use SVG identification
+  const svg = element.querySelector('svg') || (tagName === 'svg' ? element : null);
+  if (svg) {
+    return generateXPathBySvg(element, svg);
+  }
+  
+  // Strategy 5: Use element's textContent (includes nested text)
+  const fullText = (element.textContent || '').trim();
+  if (fullText && fullText.length > 0 && fullText.length < 80) {
+    const escapedText = escapeXPathString(fullText);
+    let xpath = `//${tagName}[normalize-space()=${escapedText}]`;
+    if (!isXPathUnique(xpath)) {
+      xpath = addParentContext(element, xpath);
+    }
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 6: Positional fallback with parent context
+  return generatePositionalXPath(element);
+}
+
+function getDirectTextContent(element) {
+  // Get only direct text nodes (not nested element text)
+  let text = '';
+  for (const node of element.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    }
+  }
+  return text.trim();
+}
+
+function escapeXPathString(str) {
+  if (!str.includes("'")) return `'${str}'`;
+  if (!str.includes('"')) return `"${str}"`;
+  // Contains both — use concat
+  const parts = str.split("'").map(p => `'${p}'`);
+  return `concat(${parts.join(`,"'",`)})`;
+}
+
+function isXPathUnique(xpath) {
+  try {
+    const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    return result.snapshotLength === 1;
+  } catch {
+    return false;
+  }
+}
+
+function addParentContext(element, childXPath) {
+  // Try to find a meaningful parent to scope the xpath
+  let parent = element.parentElement;
+  let depth = 0;
+  
+  while (parent && parent !== document.body && depth < 5) {
+    const parentTag = parent.tagName?.toLowerCase();
+    
+    // Try parent with role attribute
+    const role = parent.getAttribute('role');
+    if (role) {
+      const scopedXpath = `//${parentTag}[@role='${role}']${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+      if (isXPathUnique(scopedXpath)) return scopedXpath;
+    }
+    
+    // Try parent with class
+    const cls = parent.getAttribute('class');
+    if (cls) {
+      const mainClass = cls.split(/\s+/).find(c => c.length > 2 && !c.startsWith('_'));
+      if (mainClass) {
+        const scopedXpath = `//${parentTag}[contains(@class,'${mainClass}')]${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+        if (isXPathUnique(scopedXpath)) return scopedXpath;
+      }
+    }
+    
+    // Try parent with aria-label
+    const ariaLabel = parent.getAttribute('aria-label');
+    if (ariaLabel) {
+      const scopedXpath = `//${parentTag}[@aria-label=${escapeXPathString(ariaLabel)}]${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+      if (isXPathUnique(scopedXpath)) return scopedXpath;
+    }
+    
+    // Try parent with id
+    if (parent.id) {
+      const scopedXpath = `//${parentTag}[@id='${parent.id}']${childXPath.startsWith('//') ? childXPath.substring(1) : childXPath}`;
+      if (isXPathUnique(scopedXpath)) return scopedXpath;
+    }
+    
+    parent = parent.parentElement;
+    depth++;
+  }
+  
+  // Fallback: add positional index among siblings
+  const siblings = element.parentElement 
+    ? Array.from(element.parentElement.children).filter(e => e.tagName === element.tagName)
+    : [];
+  if (siblings.length > 1) {
+    const idx = siblings.indexOf(element) + 1;
+    // Replace the leading // with indexed version
+    const baseTag = element.tagName.toLowerCase();
+    return `(${childXPath})[${idx}]`;
+  }
+  
+  return childXPath;
+}
+
+function generateXPathForInput(element) {
+  const tagName = element.tagName?.toLowerCase();
+  
+  // Try placeholder
+  const placeholder = element.getAttribute('placeholder');
+  if (placeholder) {
+    let xpath = `//${tagName}[@placeholder=${escapeXPathString(placeholder)}]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+  }
+  
+  // Try name attribute
+  const name = element.getAttribute('name');
+  if (name) {
+    let xpath = `//${tagName}[@name='${name}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+  }
+  
+  // Try associated label
+  if (element.id) {
+    const label = document.querySelector(`label[for='${element.id}']`);
+    if (label) {
+      const labelText = label.textContent?.trim();
+      if (labelText) {
+        let xpath = `//label[normalize-space()=${escapeXPathString(labelText)}]//${tagName}`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+        // Try sibling approach
+        xpath = `//label[normalize-space()=${escapeXPathString(labelText)}]/following::${tagName}[1]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+    }
+  }
+  
+  // Try parent label
+  const parentLabel = element.closest('label');
+  if (parentLabel) {
+    const labelText = getDirectTextContent(parentLabel);
+    if (labelText) {
+      let xpath = `//label[contains(normalize-space(),${escapeXPathString(labelText)})]//${tagName}`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+  }
+  
+  // Try type attribute for inputs
+  if (tagName === 'input') {
+    const type = element.getAttribute('type') || 'text';
+    let xpath = `//input[@type='${type}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    
+    // Add parent context
+    xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  return generatePositionalXPath(element);
+}
+
+function generateXPathBySvg(element, svg) {
+  const tagName = element.tagName?.toLowerCase();
+  
+  // Try to identify SVG by its path data (d attribute) — very unique
+  const pathEl = svg.querySelector('path[d]');
+  if (pathEl) {
+    const d = pathEl.getAttribute('d');
+    if (d) {
+      // Use a short prefix of the d attribute for identification
+      const dPrefix = d.substring(0, 40);
+      let xpath = `//${tagName}[.//svg//path[starts-with(@d,'${dPrefix}')]]`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+  }
+  
+  // Try SVG with specific class
+  const svgClass = svg.getAttribute('class');
+  if (svgClass) {
+    const mainClass = svgClass.split(/\s+/).find(c => c.length > 2);
+    if (mainClass) {
+      let xpath = `//${tagName}[.//svg[contains(@class,'${mainClass}')]]`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+  }
+  
+  // Try SVG viewBox
+  const viewBox = svg.getAttribute('viewBox');
+  if (viewBox) {
+    let xpath = `//${tagName}[.//svg[@viewBox='${viewBox}']]`;
+    if (!isXPathUnique(xpath)) {
+      xpath = addParentContext(element, xpath);
+    }
+    return `xpath${xpath}`;
+  }
+  
+  return generatePositionalXPath(element);
+}
+
+function generatePositionalXPath(element) {
+  // Build a path from the element up to the body with positional indexes
+  const parts = [];
+  let current = element;
+  
+  while (current && current !== document.body && parts.length < 6) {
+    const tagName = current.tagName?.toLowerCase();
+    if (!tagName) break;
+    
+    const parent = current.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(e => e.tagName?.toLowerCase() === tagName);
+      if (siblings.length > 1) {
+        const idx = siblings.indexOf(current) + 1;
+        parts.unshift(`${tagName}[${idx}]`);
+      } else {
+        parts.unshift(tagName);
+      }
+    } else {
+      parts.unshift(tagName);
+    }
+    
+    current = parent;
+  }
+  
+  return `xpath//${parts.join('/')}`;
+}
+
 function generateARIASelector(element) {
   const role = element.getAttribute('role');
   const label = element.getAttribute('aria-label');
