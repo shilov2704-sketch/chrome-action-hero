@@ -570,6 +570,7 @@ async function continueRecording() {
   await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
     selectors: state.currentRecording.selectedSelectors || state.selectedSelectors,
+    noDataTestId: state.currentRecording.noDataTestId || false,
     skipInitialSteps: true  // Flag to skip setViewport and navigate
   });
 }
