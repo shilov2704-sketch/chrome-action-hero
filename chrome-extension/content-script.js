@@ -554,10 +554,10 @@ function generateXPathNoDataTest(element, eventType = null) {
           const spanClass = spanWithAttrs.getAttribute('class');
           const targetTag = container === element ? tagName : container.tagName.toLowerCase();
           if (spanClass) {
-            let xpath = `//span[@color="${color}" and @type="${type}" and @class='${spanClass}']/parent::${targetTag}`;
+            let xpath = `//span[@color='${color}' and @type='${type}' and @class='${spanClass}']/parent::${targetTag}`;
             if (isXPathUnique(xpath)) return `xpath${xpath}`;
           }
-          let xpath = `//span[@color="${color}" and @type="${type}"]/parent::${targetTag}`;
+          let xpath = `//span[@color='${color}' and @type='${type}']/parent::${targetTag}`;
           if (isXPathUnique(xpath)) return `xpath${xpath}`;
         }
       }
