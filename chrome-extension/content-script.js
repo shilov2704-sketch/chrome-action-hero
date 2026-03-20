@@ -548,6 +548,41 @@ function generateXPathNoDataTest(element, eventType = null) {
      }
    }
    
+   // Strategy 0b2a: Div with specific full class + direct text
+   // For classes: 'css-1rgon6j e6qto093', 'css-lnmb84 ebuwe7z2'
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     const exactClassMatches = ['css-1rgon6j e6qto093', 'css-lnmb84 ebuwe7z2'];
+     if (exactClassMatches.includes(elClass)) {
+       const dt = (element.textContent || '').trim();
+       if (dt) {
+         const escapedText = escapeXPathString(dt);
+         let xpath = `//div[contains(@class, '${elClass}') and normalize-space(text())=${escapedText}]`;
+         if (isXPathUnique(xpath)) return `xpath${xpath}`;
+       }
+     }
+   }
+   
+   // Strategy 0b2b: Div with class 'css-tytyda e1snk6cc2' inside label with span text
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass === 'css-tytyda e1snk6cc2') {
+       // Walk up to find a parent <label>
+       let labelEl = element.closest('label');
+       if (labelEl) {
+         const spanInLabel = labelEl.querySelector('span');
+         if (spanInLabel) {
+           const spanText = (spanInLabel.textContent || '').trim();
+           if (spanText) {
+             const escapedText = escapeXPathString(spanText);
+             let xpath = `//label[contains(., ${escapedText})]//div[contains(@class, 'css-tytyda')]`;
+             if (isXPathUnique(xpath)) return `xpath${xpath}`;
+           }
+         }
+       }
+     }
+   }
+   
    // Strategy 0b3: Sibling div with title attribute - //div[@title='..']/..//div[@class='...']
    if (tagName === 'div') {
      const elClass = element.getAttribute('class') || '';
