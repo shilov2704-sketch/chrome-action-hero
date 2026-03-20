@@ -539,6 +539,53 @@ function generateXPathNoDataTest(element, eventType = null) {
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
   }
   
+  // Strategy 0c: Check if child span has color+type attributes — use span[@color and @type]/parent::tag pattern
+  if (tagName === 'div' || tagName === 'span' || tagName === 'p') {
+    const childSpan = element.querySelector('span[color][type]');
+    if (childSpan) {
+      const color = childSpan.getAttribute('color');
+      const type = childSpan.getAttribute('type');
+      let xpath = `//span[@color="${color}" and @type="${type}"]/parent::${tagName}`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+  }
+  
+  // Strategy 0d: Draggable parent — find ancestor with data-react-beautiful-dnd-draggable
+  {
+    let parent = element.parentElement;
+    let childRef = element;
+    let depth = 0;
+    while (parent && parent !== document.body && depth < 6) {
+      if (parent.hasAttribute('data-react-beautiful-dnd-draggable')) {
+        const parentText = getDirectTextContent(parent);
+        const parentClass = parent.getAttribute('class');
+        const parentTag = parent.tagName.toLowerCase();
+        // Calculate child index of the clicked element relative to parent
+        const siblings = Array.from(parent.children);
+        const idx = siblings.indexOf(childRef) + 1;
+        
+        if (parentText && parentText.length > 0 && parentClass) {
+          const mainClass = parentClass.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_'));
+          if (mainClass) {
+            let xpath = `//${parentTag}[text()=${escapeXPathString(parentText)} and @class='${parentClass}']/${tagName}[${idx}]`;
+            if (isXPathUnique(xpath)) return `xpath${xpath}`;
+            // Try with contains class
+            xpath = `//${parentTag}[text()=${escapeXPathString(parentText)} and contains(@class, '${mainClass}')]/${tagName}[${idx}]`;
+            if (isXPathUnique(xpath)) return `xpath${xpath}`;
+          }
+        }
+        if (parentText && parentText.length > 0) {
+          let xpath = `//${parentTag}[text()=${escapeXPathString(parentText)}]/${tagName}[${idx}]`;
+          if (isXPathUnique(xpath)) return `xpath${xpath}`;
+        }
+        break;
+      }
+      childRef = parent;
+      parent = parent.parentElement;
+      depth++;
+    }
+  }
+  
   // Strategy 1: Input/textarea/select — handle EARLY to avoid text-content contamination
   if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
     return generateXPathForInput(element);
