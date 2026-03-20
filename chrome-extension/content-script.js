@@ -16,6 +16,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     stopRecording();
     sendResponse({ success: true });
   } else if (message.action === 'activateElementPicker') {
+    if (message.noDataTestId !== undefined) {
+      noDataTestIdMode = message.noDataTestId;
+    }
     activateElementPicker();
     sendResponse({ success: true });
   } else if (message.action === 'replayRecording') {

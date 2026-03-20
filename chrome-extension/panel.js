@@ -600,7 +600,8 @@ function handleRecordedEvent(message) {
 async function activateElementPicker() {
   const tabId = chrome.devtools.inspectedWindow.tabId;
   await chrome.tabs.sendMessage(tabId, {
-    action: 'activateElementPicker'
+    action: 'activateElementPicker',
+    noDataTestId: state.currentRecording?.noDataTestId || false
   });
 }
 
