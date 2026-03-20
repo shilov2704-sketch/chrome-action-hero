@@ -539,7 +539,12 @@ function generateXPathNoDataTest(element, eventType = null) {
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
   }
   
-  // Strategy 1: Element has visible direct text (buttons, links, spans, divs)
+  // Strategy 1: Input/textarea/select — handle EARLY to avoid text-content contamination
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return generateXPathForInput(element);
+  }
+  
+  // Strategy 2: Element has visible direct text (buttons, links, spans, divs)
   const directText = getDirectTextContent(element);
   
   if (directText && directText.length > 0 && directText.length < 80) {
@@ -562,7 +567,7 @@ function generateXPathNoDataTest(element, eventType = null) {
     return `xpath${xpath}`;
   }
   
-  // Strategy 2: Element contains nested span/text (e.g. <a> with <span>Text</span>)
+  // Strategy 3: Element contains nested span/text (e.g. <a> with <span>Text</span>)
   const nestedTextEl = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
   if (nestedTextEl) {
     const spanText = (nestedTextEl.textContent || '').trim();
@@ -585,11 +590,6 @@ function generateXPathNoDataTest(element, eventType = null) {
       }
       return `xpath${xpath}`;
     }
-  }
-  
-  // Strategy 3: Input/textarea/select — find associated label via sibling/parent structure
-  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-    return generateXPathForInput(element);
   }
   
   // Strategy 4: aria-label or title
@@ -782,12 +782,33 @@ function generateXPathForInput(element) {
     }
   }
   
-  // Try parent label
+  // Try parent label (input nested inside label)
   const parentLabel = element.closest('label');
   if (parentLabel) {
     const labelText = getDirectTextContent(parentLabel);
     if (labelText) {
       let xpath = `//label[contains(normalize-space(),${escapeXPathString(labelText)})]//${tagName}`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+  }
+  
+  // Try following-sibling pattern: <label>...<span>Text</span>...</label> <input>
+  // This is common: label is a sibling of the input, not a parent
+  const prevSibling = element.previousElementSibling;
+  if (prevSibling && prevSibling.tagName?.toLowerCase() === 'label') {
+    // Get the first meaningful span text inside the label (ignore asterisks etc.)
+    const labelSpans = prevSibling.querySelectorAll('span');
+    let meaningfulText = '';
+    for (const sp of labelSpans) {
+      const t = (sp.textContent || '').trim();
+      if (t && t.length > 1) { meaningfulText = t; break; }
+    }
+    if (!meaningfulText) {
+      meaningfulText = (prevSibling.textContent || '').trim().replace(/\s*\*\s*$/, '').trim();
+    }
+    if (meaningfulText) {
+      const escapedLabel = escapeXPathString(meaningfulText);
+      let xpath = `//label[contains(., ${escapedLabel})]/following-sibling::${tagName}`;
       if (isXPathUnique(xpath)) return `xpath${xpath}`;
     }
   }
@@ -801,21 +822,22 @@ function generateXPathForInput(element) {
     const labelEl = container.querySelector('label span, label, .label, [class*="label"]');
     if (labelEl) {
       const labelText = (labelEl.textContent || '').trim();
-      if (labelText && labelText.length > 0 && labelText.length < 80) {
+      // Strip trailing asterisk for cleaner matching
+      const cleanLabelText = labelText.replace(/\s*\*\s*$/, '').trim();
+      if (cleanLabelText && cleanLabelText.length > 0 && cleanLabelText.length < 80) {
         const containerTag = container.tagName.toLowerCase();
-        const escapedLabel = escapeXPathString(labelText);
+        const escapedLabel = escapeXPathString(cleanLabelText);
         
-        // Build: //div[.//span[contains(., 'Label')]]//textarea[contains(@class, 'cls')]
-        const labelTag = labelEl.tagName.toLowerCase();
+        // Build: //div[.//label[contains(., 'Label')]]//textarea[contains(@class, 'cls')]
         const cls = element.getAttribute('class');
         const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
         
         if (mainClass) {
-          let xpath = `//${containerTag}[.//${labelTag}[contains(., ${escapedLabel})]]//${tagName}[contains(@class, '${mainClass}')]`;
+          let xpath = `//${containerTag}[.//label[contains(., ${escapedLabel})]]//${tagName}[contains(@class, '${mainClass}')]`;
           if (isXPathUnique(xpath)) return `xpath${xpath}`;
         }
         
-        let xpath = `//${containerTag}[.//${labelTag}[contains(., ${escapedLabel})]]//${tagName}`;
+        let xpath = `//${containerTag}[.//label[contains(., ${escapedLabel})]]//${tagName}`;
         if (isXPathUnique(xpath)) return `xpath${xpath}`;
       }
     }
