@@ -57,9 +57,16 @@ async function saveFolders() {
   await chrome.storage.local.set({ folders: state.folders });
 }
 
-
 // Event Listeners
 function initializeEventListeners() {
+  // Mutual exclusivity for TestSuite selects
+  document.getElementById('suiteNameWeb').addEventListener('change', (e) => {
+    if (e.target.value) document.getElementById('suiteNameAdmin').value = '';
+  });
+  document.getElementById('suiteNameAdmin').addEventListener('change', (e) => {
+    if (e.target.value) document.getElementById('suiteNameWeb').value = '';
+  });
+
   // Navigation
   document.getElementById('createRecordingBtn').addEventListener('click', () => {
     state.currentView = 'create';
@@ -442,8 +449,9 @@ async function startRecording() {
   const nameInput = document.getElementById('recordingName');
   const name = nameInput.value.trim();
   
-  const suiteNameInput = document.getElementById('suiteName');
-  const suiteName = suiteNameInput.value.trim();
+  const suiteNameWeb = document.getElementById('suiteNameWeb').value.trim();
+  const suiteNameAdmin = document.getElementById('suiteNameAdmin').value.trim();
+  const suiteName = suiteNameWeb || suiteNameAdmin;
   
   const workItemIdInput = document.getElementById('workItemId');
   const workItemIdRaw = workItemIdInput ? workItemIdInput.value.trim() : '';
