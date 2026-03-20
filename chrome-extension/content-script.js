@@ -10,7 +10,7 @@ let inputDebounceTimers = new Map();
 // Listen for messages from panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startRecording') {
-    startRecording(message.selectors);
+    startRecording(message.selectors, message.noDataTestId);
     sendResponse({ success: true });
   } else if (message.action === 'stopRecording') {
     stopRecording();
