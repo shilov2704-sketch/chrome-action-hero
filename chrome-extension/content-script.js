@@ -539,22 +539,75 @@ function generateXPathNoDataTest(element, eventType = null) {
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
   }
   
-  // Strategy 0c: Check if child span has color+type+class attributes (only when span has NO text)
+  // Strategy 0c: Check for sibling or child span with color+type+class attributes (only when span has NO text)
   if (tagName === 'div' || tagName === 'span' || tagName === 'p') {
-    const childSpan = element.querySelector('span[color][type]');
-    if (childSpan) {
-      const spanText = (childSpan.textContent || '').trim();
-      // Only use this strategy when span has no visible text
-      if (!spanText) {
-        const color = childSpan.getAttribute('color');
-        const type = childSpan.getAttribute('type');
-        const spanClass = childSpan.getAttribute('class');
-        if (spanClass) {
-          let xpath = `//span[@color="${color}" and @type="${type}" and @class='${spanClass}']/parent::${tagName}`;
+    // Check in current element AND parent element for span[color][type]
+    const candidates = [element, element.parentElement].filter(Boolean);
+    for (const container of candidates) {
+      const spanWithAttrs = container.querySelector('span[color][type]');
+      if (spanWithAttrs) {
+        const spanText = (spanWithAttrs.textContent || '').trim();
+        // Only use this strategy when span has no visible text
+        if (!spanText) {
+          const color = spanWithAttrs.getAttribute('color');
+          const type = spanWithAttrs.getAttribute('type');
+          const spanClass = spanWithAttrs.getAttribute('class');
+          const targetTag = container === element ? tagName : container.tagName.toLowerCase();
+          if (spanClass) {
+            let xpath = `//span[@color="${color}" and @type="${type}" and @class='${spanClass}']/parent::${targetTag}`;
+            if (isXPathUnique(xpath)) return `xpath${xpath}`;
+          }
+          let xpath = `//span[@color="${color}" and @type="${type}"]/parent::${targetTag}`;
           if (isXPathUnique(xpath)) return `xpath${xpath}`;
         }
-        let xpath = `//span[@color="${color}" and @type="${type}"]/parent::${tagName}`;
-        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+    }
+  }
+  
+  // Strategy 0d: Element inside a data-react-beautiful-dnd-draggable container
+  {
+    let draggableAncestor = element.closest('[data-react-beautiful-dnd-draggable]');
+    if (draggableAncestor) {
+      // Find the child div that has direct text (the label div)
+      const allChildren = draggableAncestor.querySelectorAll('div');
+      let textDiv = null;
+      for (const d of allChildren) {
+        const dt = getDirectTextContent(d);
+        if (dt && dt.length > 0 && dt.length < 80) {
+          textDiv = d;
+          break;
+        }
+      }
+      if (textDiv) {
+        const textDivClass = textDiv.getAttribute('class') || '';
+        const labelText = getDirectTextContent(textDiv);
+        const escapedText = escapeXPathString(labelText);
+        // Calculate child index of the clicked element relative to the textDiv
+        // Walk up from element to find which child of textDiv's parent we are
+        let target = element;
+        let parentOfTarget = target.parentElement;
+        // Find the common ancestor and compute path
+        // Use textDiv as anchor, find element's position relative to it
+        const textDivParent = textDiv.parentElement;
+        if (textDivParent) {
+          const siblings = Array.from(textDivParent.children);
+          const textDivIdx = siblings.indexOf(textDiv);
+          // Walk up from element to textDivParent to find the direct child
+          let child = element;
+          while (child && child.parentElement !== textDivParent && child !== document.body) {
+            child = child.parentElement;
+          }
+          if (child && child.parentElement === textDivParent) {
+            const childIdx = siblings.indexOf(child) + 1;
+            let xpath;
+            if (textDivClass) {
+              xpath = `//div[text()=${escapedText} and @class='${textDivClass}']/${child.tagName.toLowerCase()}[${childIdx}]`;
+            } else {
+              xpath = `//div[text()=${escapedText}]/${child.tagName.toLowerCase()}[${childIdx}]`;
+            }
+            if (isXPathUnique(xpath)) return `xpath${xpath}`;
+          }
+        }
       }
     }
   }
