@@ -1267,16 +1267,17 @@ body {
 }
 
 /* Switch toggle */
-.switch-label {
+.form-group label.switch-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 20px;
+  margin-bottom: 0;
 }
 
 .switch-container {

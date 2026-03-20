@@ -449,6 +449,17 @@ function findInteractiveElementNoDataTest(element) {
   
   let current = element;
   
+  // Step 0: Check for data-tip or data-id on clicked element or close parents
+  let check = element;
+  let checkDepth = 0;
+  while (check && check !== document.body && checkDepth < 5) {
+    if (check.hasAttribute('data-tip') || check.hasAttribute('data-id')) {
+      return check;
+    }
+    check = check.parentElement;
+    checkDepth++;
+  }
+  
   // Step 1: If clicked on a leaf, walk up to find an interactive or meaningful parent
   while (current && current !== document.body) {
     const tagName = current.tagName?.toLowerCase();
