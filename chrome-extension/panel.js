@@ -57,6 +57,13 @@ async function saveFolders() {
   await chrome.storage.local.set({ folders: state.folders });
 }
 
+  // Mutual exclusivity for TestSuite selects
+  document.getElementById('suiteNameWeb').addEventListener('change', (e) => {
+    if (e.target.value) document.getElementById('suiteNameAdmin').value = '';
+  });
+  document.getElementById('suiteNameAdmin').addEventListener('change', (e) => {
+    if (e.target.value) document.getElementById('suiteNameWeb').value = '';
+  });
 
 // Event Listeners
 function initializeEventListeners() {
