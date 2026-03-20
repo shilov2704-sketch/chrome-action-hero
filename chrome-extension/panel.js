@@ -479,6 +479,7 @@ async function startRecording() {
     suiteName: suiteName,
     workItemId: workItemId,
     selectorAttribute: 'data-testid',
+    noDataTestId: document.getElementById('noDataTestIdSwitch')?.checked || false,
     createdAt: new Date().toISOString(),
     steps: [],
     selectedSelectors: [...state.selectedSelectors]
@@ -504,7 +505,8 @@ async function startRecording() {
   // Inject content script and start recording
   await chrome.tabs.sendMessage(tabId, {
     action: 'startRecording',
-    selectors: state.selectedSelectors
+    selectors: state.selectedSelectors,
+    noDataTestId: state.currentRecording.noDataTestId
   });
 }
 
