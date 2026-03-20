@@ -236,7 +236,9 @@ function handleChange(event) {
 
   // For change events, use the target directly as it's already the input element
   const target = event.target;
-  const selectors = generateSelectors(target, 'change');
+  const selectors = noDataTestIdMode 
+    ? generateSelectorsNoDataTest(target, 'change') 
+    : generateSelectors(target, 'change');
 
   const changeEvent = {
     type: 'change',
