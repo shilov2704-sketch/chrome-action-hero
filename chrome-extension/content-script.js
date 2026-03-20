@@ -554,10 +554,10 @@ function generateXPathNoDataTest(element, eventType = null) {
           const spanClass = spanWithAttrs.getAttribute('class');
           const targetTag = container === element ? tagName : container.tagName.toLowerCase();
           if (spanClass) {
-            let xpath = `//span[@color="${color}" and @type="${type}" and @class='${spanClass}']/parent::${targetTag}`;
+            let xpath = `//span[@color='${color}' and @type='${type}' and @class='${spanClass}']/parent::${targetTag}`;
             if (isXPathUnique(xpath)) return `xpath${xpath}`;
           }
-          let xpath = `//span[@color="${color}" and @type="${type}"]/parent::${targetTag}`;
+          let xpath = `//span[@color='${color}' and @type='${type}']/parent::${targetTag}`;
           if (isXPathUnique(xpath)) return `xpath${xpath}`;
         }
       }
@@ -584,29 +584,21 @@ function generateXPathNoDataTest(element, eventType = null) {
         const escapedText = escapeXPathString(labelText);
         // Calculate child index of the clicked element relative to the textDiv
         // Walk up from element to find which child of textDiv's parent we are
-        let target = element;
-        let parentOfTarget = target.parentElement;
-        // Find the common ancestor and compute path
-        // Use textDiv as anchor, find element's position relative to it
-        const textDivParent = textDiv.parentElement;
-        if (textDivParent) {
-          const siblings = Array.from(textDivParent.children);
-          const textDivIdx = siblings.indexOf(textDiv);
-          // Walk up from element to textDivParent to find the direct child
-          let child = element;
-          while (child && child.parentElement !== textDivParent && child !== document.body) {
-            child = child.parentElement;
+        // Find which direct child of textDiv the clicked element falls under
+        let child = element;
+        while (child && child.parentElement !== textDiv && child !== document.body) {
+          child = child.parentElement;
+        }
+        if (child && child.parentElement === textDiv) {
+          const textDivChildren = Array.from(textDiv.children);
+          const childIdx = textDivChildren.indexOf(child) + 1;
+          let xpath;
+          if (textDivClass) {
+            xpath = `//div[text()=${escapedText} and @class='${textDivClass}']/${child.tagName.toLowerCase()}[${childIdx}]`;
+          } else {
+            xpath = `//div[text()=${escapedText}]/${child.tagName.toLowerCase()}[${childIdx}]`;
           }
-          if (child && child.parentElement === textDivParent) {
-            const childIdx = siblings.indexOf(child) + 1;
-            let xpath;
-            if (textDivClass) {
-              xpath = `//div[text()=${escapedText} and @class='${textDivClass}']/${child.tagName.toLowerCase()}[${childIdx}]`;
-            } else {
-              xpath = `//div[text()=${escapedText}]/${child.tagName.toLowerCase()}[${childIdx}]`;
-            }
-            if (isXPathUnique(xpath)) return `xpath${xpath}`;
-          }
+          if (isXPathUnique(xpath)) return `xpath${xpath}`;
         }
       }
     }
