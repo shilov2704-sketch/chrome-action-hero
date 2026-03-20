@@ -210,9 +210,13 @@ function findInteractiveElement(element) {
 function handleClick(event) {
   if (!isRecording || isPickingElement) return;
 
-  // Find the actual interactive element instead of using event.target directly
-  const target = findInteractiveElement(event.target);
-  const selectors = generateSelectors(target, 'click');
+  // Find the actual interactive element
+  const target = noDataTestIdMode 
+    ? findInteractiveElementNoDataTest(event.target) 
+    : findInteractiveElement(event.target);
+  const selectors = noDataTestIdMode 
+    ? generateSelectorsNoDataTest(target, 'click') 
+    : generateSelectors(target, 'click');
   const rect = target.getBoundingClientRect();
 
   const clickEvent = {
