@@ -539,7 +539,12 @@ function generateXPathNoDataTest(element, eventType = null) {
     if (isXPathUnique(xpath)) return `xpath${xpath}`;
   }
   
-  // Strategy 1: Element has visible direct text (buttons, links, spans, divs)
+  // Strategy 1: Input/textarea/select — handle EARLY to avoid text-content contamination
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return generateXPathForInput(element);
+  }
+  
+  // Strategy 2: Element has visible direct text (buttons, links, spans, divs)
   const directText = getDirectTextContent(element);
   
   if (directText && directText.length > 0 && directText.length < 80) {
@@ -562,7 +567,7 @@ function generateXPathNoDataTest(element, eventType = null) {
     return `xpath${xpath}`;
   }
   
-  // Strategy 2: Element contains nested span/text (e.g. <a> with <span>Text</span>)
+  // Strategy 3: Element contains nested span/text (e.g. <a> with <span>Text</span>)
   const nestedTextEl = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
   if (nestedTextEl) {
     const spanText = (nestedTextEl.textContent || '').trim();
@@ -585,11 +590,6 @@ function generateXPathNoDataTest(element, eventType = null) {
       }
       return `xpath${xpath}`;
     }
-  }
-  
-  // Strategy 3: Input/textarea/select — find associated label via sibling/parent structure
-  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
-    return generateXPathForInput(element);
   }
   
   // Strategy 4: aria-label or title
