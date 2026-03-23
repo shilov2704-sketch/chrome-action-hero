@@ -1597,6 +1597,31 @@ function updateHostInfo() {
   }
 }
 
+// Save Login (email)
+function saveLogin() {
+  const loginInput = document.getElementById('editLogin');
+  if (!loginInput || !state.currentRecording) return;
+  
+  const email = loginInput.value.trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (email && !emailRegex.test(email)) {
+    alert('Пожалуйста, введите корректный E-mail адрес');
+    return;
+  }
+  
+  state.currentRecording = { ...state.currentRecording, login: email };
+  
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+    saveRecordings();
+  }
+  
+  if (email) saveEmailToHistory(email);
+  updateCodePreview();
+  alert('E-mail сохранён');
+}
+
 // Save WorkItemID
 function saveWorkItemId() {
   const workItemIdInput = document.getElementById('editWorkItemId');
