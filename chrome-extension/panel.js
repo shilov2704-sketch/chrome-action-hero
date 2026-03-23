@@ -461,8 +461,23 @@ async function startRecording() {
   const preconditionsInput = document.getElementById('preconditions');
   const preconditions = preconditionsInput ? preconditionsInput.value.trim() : '';
 
+  const emailInput = document.getElementById('recordingEmail');
+  const email = emailInput ? emailInput.value.trim() : '';
+
   if (!name) {
     alert('Пожалуйста, введите название записи');
+    return;
+  }
+
+  if (!email) {
+    alert('Пожалуйста, введите E-mail');
+    return;
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    alert('Пожалуйста, введите корректный E-mail адрес');
     return;
   }
 
@@ -475,6 +490,9 @@ async function startRecording() {
     alert('Выберите хотя бы один тип селектора');
     return;
   }
+
+  // Save email to history
+  saveEmailToHistory(email);
 
   // Get viewport info
   const tabId = chrome.devtools.inspectedWindow.tabId;
