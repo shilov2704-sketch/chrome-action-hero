@@ -1761,6 +1761,7 @@ function prepareRecordingForExport(recording) {
     createdAt: rest.createdAt,
     folderId: rest.folderId,
     id: rest.id,
+    login: rest.login || '',
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
     noDataTestId: rest.noDataTestId || false,
@@ -1770,7 +1771,7 @@ function prepareRecordingForExport(recording) {
     preconditions: rest.preconditions !== undefined ? rest.preconditions : '',
     steps: processedSteps
   };
-  
+
   // Remove undefined fields (like folderId if not set)
   Object.keys(result).forEach(key => {
     if (result[key] === undefined) {
