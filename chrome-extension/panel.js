@@ -468,6 +468,9 @@ function initializeEventListeners() {
   // Save Preconditions button
   document.getElementById('savePreconditionsBtn').addEventListener('click', savePreconditions);
   
+  // Save Login button
+  document.getElementById('saveLoginBtn').addEventListener('click', saveLogin);
+  
   // Save WorkItemID button
   document.getElementById('saveWorkItemIdBtn').addEventListener('click', saveWorkItemId);
 }
