@@ -34,6 +34,7 @@ const state = {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadRecordings();
+  loadEmailHistory();
   initializeEventListeners();
   initializeTheme();
   updateView();
@@ -55,6 +56,65 @@ async function saveRecordings() {
 // Save folders to storage
 async function saveFolders() {
   await chrome.storage.local.set({ folders: state.folders });
+}
+
+// Email history management
+let emailHistory = [];
+
+async function loadEmailHistory() {
+  const result = await chrome.storage.local.get(['emailHistory']);
+  emailHistory = result.emailHistory || [];
+  const input = document.getElementById('recordingEmail');
+  if (input && emailHistory.length > 0) {
+    input.value = emailHistory[0];
+  }
+  renderEmailSuggestions();
+}
+
+async function saveEmailToHistory(email) {
+  if (!email) return;
+  emailHistory = emailHistory.filter(e => e !== email);
+  emailHistory.unshift(email);
+  await chrome.storage.local.set({ emailHistory });
+  renderEmailSuggestions();
+}
+
+async function removeEmailFromHistory(email) {
+  emailHistory = emailHistory.filter(e => e !== email);
+  await chrome.storage.local.set({ emailHistory });
+  renderEmailSuggestions();
+}
+
+function renderEmailSuggestions() {
+  const container = document.getElementById('emailSuggestions');
+  const input = document.getElementById('recordingEmail');
+  if (!container || !input) return;
+
+  if (emailHistory.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  container.innerHTML = emailHistory.map(em => 
+    '<div class="email-suggestion-item">' +
+      '<span class="email-suggestion-text" data-email="' + em + '">' + em + '</span>' +
+      '<button class="email-suggestion-remove" data-email="' + em + '" title="Удалить">✕</button>' +
+    '</div>'
+  ).join('');
+
+  container.querySelectorAll('.email-suggestion-text').forEach(el => {
+    el.addEventListener('click', () => {
+      input.value = el.dataset.email;
+    });
+  });
+
+  container.querySelectorAll('.email-suggestion-remove').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeEmailFromHistory(el.dataset.email);
+    });
+  });
 }
 
 // Event Listeners
@@ -461,8 +521,23 @@ async function startRecording() {
   const preconditionsInput = document.getElementById('preconditions');
   const preconditions = preconditionsInput ? preconditionsInput.value.trim() : '';
 
+  const emailInput = document.getElementById('recordingEmail');
+  const email = emailInput ? emailInput.value.trim() : '';
+
   if (!name) {
     alert('Пожалуйста, введите название записи');
+    return;
+  }
+
+  if (!email) {
+    alert('Пожалуйста, введите E-mail');
+    return;
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    alert('Пожалуйста, введите корректный E-mail адрес');
     return;
   }
 
@@ -476,12 +551,16 @@ async function startRecording() {
     return;
   }
 
+  // Save email to history
+  saveEmailToHistory(email);
+
   // Get viewport info
   const tabId = chrome.devtools.inspectedWindow.tabId;
   
   // Create new recording with empty steps array
   state.currentRecording = {
     id: Date.now(),
+    login: email,
     title: name,
     preconditions: preconditions,
     suiteName: suiteName,
@@ -1741,6 +1820,7 @@ function prepareRecordingForExport(recording) {
     createdAt: rest.createdAt,
     folderId: rest.folderId,
     id: rest.id,
+    login: rest.login || '',
     selectedSelectors: rest.selectedSelectors,
     selectorAttribute: rest.selectorAttribute,
     noDataTestId: rest.noDataTestId || false,
@@ -1750,7 +1830,7 @@ function prepareRecordingForExport(recording) {
     preconditions: rest.preconditions !== undefined ? rest.preconditions : '',
     steps: processedSteps
   };
-  
+
   // Remove undefined fields (like folderId if not set)
   Object.keys(result).forEach(key => {
     if (result[key] === undefined) {
@@ -2045,6 +2125,11 @@ async function handleImportFiles(event) {
       } else if (recording.WorkItemID !== undefined) {
         recording.workItemId = recording.WorkItemID;
         delete recording.WorkItemID;
+      }
+
+      // Handle login field from import
+      if (recording.login === undefined) {
+        recording.login = '';
       }
 
       state.recordings.push(recording);
