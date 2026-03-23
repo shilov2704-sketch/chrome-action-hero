@@ -1578,6 +1578,12 @@ function updateHostInfo() {
     }
   }
   
+  // Update Login (email) field
+  const loginInput = document.getElementById('editLogin');
+  if (loginInput && state.currentRecording) {
+    loginInput.value = state.currentRecording.login || '';
+  }
+  
   // Update WorkItemID field
   const workItemIdInput = document.getElementById('editWorkItemId');
   if (workItemIdInput && state.currentRecording) {
