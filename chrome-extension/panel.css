@@ -1343,3 +1343,49 @@ body {
   color: var(--warning);
   font-weight: 500;
 }
+
+/* Email suggestions */
+.email-input-wrapper {
+  position: relative;
+}
+
+.email-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.email-suggestion-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.email-suggestion-text {
+  cursor: pointer;
+}
+
+.email-suggestion-text:hover {
+  color: var(--accent-primary);
+}
+
+.email-suggestion-remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.email-suggestion-remove:hover {
+  color: var(--danger);
+}

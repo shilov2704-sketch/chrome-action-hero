@@ -2127,6 +2127,11 @@ async function handleImportFiles(event) {
         delete recording.WorkItemID;
       }
 
+      // Handle login field from import
+      if (recording.login === undefined) {
+        recording.login = '';
+      }
+
       state.recordings.push(recording);
       importedCount++;
     } catch (err) {
