@@ -58,6 +58,65 @@ async function saveFolders() {
   await chrome.storage.local.set({ folders: state.folders });
 }
 
+// Email history management
+let emailHistory = [];
+
+async function loadEmailHistory() {
+  const result = await chrome.storage.local.get(['emailHistory']);
+  emailHistory = result.emailHistory || [];
+  const input = document.getElementById('recordingEmail');
+  if (input && emailHistory.length > 0) {
+    input.value = emailHistory[0];
+  }
+  renderEmailSuggestions();
+}
+
+async function saveEmailToHistory(email) {
+  if (!email) return;
+  emailHistory = emailHistory.filter(e => e !== email);
+  emailHistory.unshift(email);
+  await chrome.storage.local.set({ emailHistory });
+  renderEmailSuggestions();
+}
+
+async function removeEmailFromHistory(email) {
+  emailHistory = emailHistory.filter(e => e !== email);
+  await chrome.storage.local.set({ emailHistory });
+  renderEmailSuggestions();
+}
+
+function renderEmailSuggestions() {
+  const container = document.getElementById('emailSuggestions');
+  const input = document.getElementById('recordingEmail');
+  if (!container || !input) return;
+
+  if (emailHistory.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  container.innerHTML = emailHistory.map(em => 
+    '<div class="email-suggestion-item">' +
+      '<span class="email-suggestion-text" data-email="' + em + '">' + em + '</span>' +
+      '<button class="email-suggestion-remove" data-email="' + em + '" title="Удалить">✕</button>' +
+    '</div>'
+  ).join('');
+
+  container.querySelectorAll('.email-suggestion-text').forEach(el => {
+    el.addEventListener('click', () => {
+      input.value = el.dataset.email;
+    });
+  });
+
+  container.querySelectorAll('.email-suggestion-remove').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeEmailFromHistory(el.dataset.email);
+    });
+  });
+}
+
 // Event Listeners
 function initializeEventListeners() {
   // Mutual exclusivity for TestSuite selects
