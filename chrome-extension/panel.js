@@ -500,6 +500,7 @@ async function startRecording() {
   // Create new recording with empty steps array
   state.currentRecording = {
     id: Date.now(),
+    login: email,
     title: name,
     preconditions: preconditions,
     suiteName: suiteName,
