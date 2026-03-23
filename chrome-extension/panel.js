@@ -34,6 +34,7 @@ const state = {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadRecordings();
+  loadEmailHistory();
   initializeEventListeners();
   initializeTheme();
   updateView();
