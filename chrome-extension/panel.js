@@ -468,6 +468,9 @@ function initializeEventListeners() {
   // Save Preconditions button
   document.getElementById('savePreconditionsBtn').addEventListener('click', savePreconditions);
   
+  // Save Login button
+  document.getElementById('saveLoginBtn').addEventListener('click', saveLogin);
+  
   // Save WorkItemID button
   document.getElementById('saveWorkItemIdBtn').addEventListener('click', saveWorkItemId);
 }
@@ -1578,6 +1581,12 @@ function updateHostInfo() {
     }
   }
   
+  // Update Login (email) field
+  const loginInput = document.getElementById('editLogin');
+  if (loginInput && state.currentRecording) {
+    loginInput.value = state.currentRecording.login || '';
+  }
+  
   // Update WorkItemID field
   const workItemIdInput = document.getElementById('editWorkItemId');
   if (workItemIdInput && state.currentRecording) {
@@ -1589,6 +1598,31 @@ function updateHostInfo() {
   if (preconditionsInput && state.currentRecording) {
     preconditionsInput.value = state.currentRecording.preconditions || '';
   }
+}
+
+// Save Login (email)
+function saveLogin() {
+  const loginInput = document.getElementById('editLogin');
+  if (!loginInput || !state.currentRecording) return;
+  
+  const email = loginInput.value.trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (email && !emailRegex.test(email)) {
+    alert('Пожалуйста, введите корректный E-mail адрес');
+    return;
+  }
+  
+  state.currentRecording = { ...state.currentRecording, login: email };
+  
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+    saveRecordings();
+  }
+  
+  if (email) saveEmailToHistory(email);
+  updateCodePreview();
+  alert('E-mail сохранён');
 }
 
 // Save WorkItemID
