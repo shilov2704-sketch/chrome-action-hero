@@ -1517,6 +1517,11 @@ function dispatchValueEvents(el) {
   el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
 }
 
+function isEphemeralResourceReference(value) {
+  if (value === undefined || value === null) return false;
+  return /^blob:/i.test(String(value).trim());
+}
+
 async function executeStep(step, settings) {
   switch (step.type) {
     case 'navigate':
@@ -2392,6 +2397,14 @@ async function executeStep(step, settings) {
         Number.isFinite(step?.timeout) ? step.timeout : 0,
         5000
       );
+      const shouldAssertValue =
+        step.value !== undefined &&
+        step.value !== '' &&
+        !isEphemeralResourceReference(step.value);
+      const shouldAssertText =
+        step.text !== undefined &&
+        step.text !== '' &&
+        !isEphemeralResourceReference(step.text);
 
       const startTime = Date.now();
       let lastValue = '';
@@ -2427,8 +2440,9 @@ async function executeStep(step, settings) {
         let assertionsPass = true;
 
         // If value assertion is present and non-empty, verify it (but keep waiting until timeout)
-        // Empty string value means "just check element exists", skip value assertion
-        if (step.value !== undefined && step.value !== '') {
+        // Empty string value means "just check element exists", skip value assertion.
+        // blob: URLs are regenerated on each render, so exact assertion is unstable and meaningless.
+        if (shouldAssertValue) {
           const expected = String(step.value);
           const target = resolveEditableElement(el);
           const actual = String(
@@ -2445,7 +2459,8 @@ async function executeStep(step, settings) {
         }
 
         // If text assertion is present, verify it (but keep waiting until timeout)
-        if (assertionsPass && step.text !== undefined) {
+        // Empty text or blob: text means we only wait for the element itself.
+        if (assertionsPass && shouldAssertText) {
           const expectedText = String(step.text);
           const actualText = (el.textContent ?? '').trim();
 
@@ -2468,12 +2483,12 @@ async function executeStep(step, settings) {
       }
 
       // Timeout reached — throw the most relevant error
-      if (step.value !== undefined) {
+      if (shouldAssertValue) {
         throw new Error(
           `Value assertion failed. Expected: "${step.value}", Actual: "${lastValue}"`
         );
       }
-      if (step.text !== undefined) {
+      if (shouldAssertText) {
         throw new Error(
           `Text assertion failed. Expected: "${step.text}", Actual: "${lastText}"`
         );
