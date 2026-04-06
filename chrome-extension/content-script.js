@@ -237,15 +237,26 @@ function handleClick(event) {
 function handleChange(event) {
   if (!isRecording) return;
 
+  // Skip if this change was not triggered by user interaction (e.g. DOM re-render)
+  if (!event.isTrusted) return;
+
   // For change events, use the target directly as it's already the input element
   const target = event.target;
+
+  // Deduplicate: skip if value hasn't changed since last recorded change for this element
+  const currentValue = target.value !== undefined ? target.value : target.textContent;
+  if (target._qaLastRecordedValue !== undefined && target._qaLastRecordedValue === currentValue) {
+    return;
+  }
+  target._qaLastRecordedValue = currentValue;
+
   const selectors = noDataTestIdMode 
     ? generateSelectorsNoDataTest(target, 'change') 
     : generateSelectors(target, 'change');
 
   const changeEvent = {
     type: 'change',
-    value: target.value || target.textContent,
+    value: currentValue,
     selectors: selectors,
     target: 'main',
     url: window.location.href
@@ -256,6 +267,9 @@ function handleChange(event) {
 
 function handleInput(event) {
   if (!isRecording) return;
+
+  // Skip if this input was not triggered by user interaction (e.g. DOM re-render)
+  if (!event.isTrusted) return;
 
   // For input events, use the target directly as it's already the input element
   const target = event.target;
@@ -268,12 +282,19 @@ function handleInput(event) {
   
   // Set new debounce timer (500ms)
   const timer = setTimeout(() => {
+    // Handle contenteditable and other elements
+    const value = target.value !== undefined ? target.value : target.textContent;
+
+    // Deduplicate: skip if value hasn't changed since last recorded input
+    if (target._qaLastRecordedValue !== undefined && target._qaLastRecordedValue === value) {
+      inputDebounceTimers.delete(target);
+      return;
+    }
+    target._qaLastRecordedValue = value;
+
     const selectors = noDataTestIdMode 
       ? generateSelectorsNoDataTest(target, 'change') 
       : generateSelectors(target, 'change');
-    
-    // Handle contenteditable and other elements
-    const value = target.value !== undefined ? target.value : target.textContent;
     
     const inputEvent = {
       type: 'change',
@@ -2405,8 +2426,9 @@ async function executeStep(step, settings) {
 
         let assertionsPass = true;
 
-        // If value assertion is present, verify it (but keep waiting until timeout)
-        if (step.value !== undefined) {
+        // If value assertion is present and non-empty, verify it (but keep waiting until timeout)
+        // Empty string value means "just check element exists", skip value assertion
+        if (step.value !== undefined && step.value !== '') {
           const expected = String(step.value);
           const target = resolveEditableElement(el);
           const actual = String(
@@ -2463,7 +2485,7 @@ async function executeStep(step, settings) {
 }
 
 
-function findElement(selectors) {
+function findElement(selectors, xpathOnly = false) {
   if (!Array.isArray(selectors)) return null;
 
   const expectedText = (() => {
@@ -2615,6 +2637,9 @@ function findElement(selectors) {
     }
   }
   
+  // If xpathOnly mode, stop here — don't fall through to less specific selectors
+  if (xpathOnly) return null;
+
   // Priority 2: Try ARIA selectors
   for (const selectorArray of selectors) {
     if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
@@ -2699,14 +2724,33 @@ function findElement(selectors) {
 
 async function waitForElement(selectors, timeout) {
   const startTime = Date.now();
-  
-  while (Date.now() - startTime < timeout) {
-    const element = findElement(selectors);
-    if (element) return element;
-    
-    await new Promise(resolve => setTimeout(resolve, 100));
+
+  // Check if we have XPath selectors — if so, wait for XPath match first
+  // to avoid prematurely falling through to text selectors (which can match wrong elements)
+  const hasXPath = Array.isArray(selectors) && selectors.some(arr => {
+    if (!Array.isArray(arr) || arr.length === 0) return false;
+    const s = arr[0];
+    return typeof s === 'string' && s.startsWith('xpath');
+  });
+
+  if (hasXPath) {
+    // Phase 1: Wait for XPath-only match for the full timeout
+    while (Date.now() - startTime < timeout) {
+      const element = findElement(selectors, true); // xpathOnly mode
+      if (element) return element;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    // Phase 2: Last-resort attempt with all selectors
+    const fallback = findElement(selectors, false);
+    if (fallback) return fallback;
+  } else {
+    while (Date.now() - startTime < timeout) {
+      const element = findElement(selectors);
+      if (element) return element;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
-  
+
   throw new Error('Element not found within timeout');
 }
 
