@@ -473,6 +473,9 @@ function initializeEventListeners() {
   
   // Save WorkItemID button
   document.getElementById('saveWorkItemIdBtn').addEventListener('click', saveWorkItemId);
+  
+  // Stop folder playback button
+  document.getElementById('stopFolderPlaybackBtn').addEventListener('click', stopFolderPlayback);
 }
 
 async function initializeTheme() {
@@ -1410,7 +1413,7 @@ function renderPlaybackView() {
   const container = document.getElementById('playbackStepsList');
   const recordingId = state.currentRecording.id;
   // Use folder step results or single playback step results
-  const stepResults = state.isPlayingFolder ? (state.folderStepResults[recordingId] || {}) : state.playbackStepResults;
+  const stepResults = (state.isPlayingFolder || state.folderPlaybackCompleted) ? (state.folderStepResults[recordingId] || {}) : state.playbackStepResults;
   
   container.innerHTML = state.currentRecording.steps.map((step, index) => {
     const stepResult = stepResults[index];
@@ -2679,6 +2682,30 @@ async function playFolder(folderId) {
   updateFolderPlaybackUI();
   
   await playNextInFolder();
+}
+
+// Stop folder playback
+async function stopFolderPlayback() {
+  if (!state.isPlayingFolder) return;
+  
+  // Stop current replay in content script
+  try {
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    await chrome.tabs.sendMessage(tabId, { action: 'stopReplay' });
+  } catch (e) {
+    console.warn('Failed to stop current replay:', e);
+  }
+  
+  // Mark folder playback as stopped
+  state.isPlayingFolder = false;
+  state.playingFolderId = null;
+  state.folderPlayQueue = [];
+  state.currentFolderPlayIndex = 0;
+  state.currentPlayingRecordingId = null;
+  state.folderPlaybackCompleted = true;
+  
+  updateFolderPlaybackUI();
+  renderRecordingsList();
 }
 
 // Reset folder playback results
