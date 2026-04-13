@@ -1410,7 +1410,7 @@ function renderPlaybackView() {
   const container = document.getElementById('playbackStepsList');
   const recordingId = state.currentRecording.id;
   // Use folder step results or single playback step results
-  const stepResults = state.isPlayingFolder ? (state.folderStepResults[recordingId] || {}) : state.playbackStepResults;
+  const stepResults = (state.isPlayingFolder || state.folderPlaybackCompleted) ? (state.folderStepResults[recordingId] || {}) : state.playbackStepResults;
   
   container.innerHTML = state.currentRecording.steps.map((step, index) => {
     const stepResult = stepResults[index];
