@@ -2684,6 +2684,30 @@ async function playFolder(folderId) {
   await playNextInFolder();
 }
 
+// Stop folder playback
+async function stopFolderPlayback() {
+  if (!state.isPlayingFolder) return;
+  
+  // Stop current replay in content script
+  try {
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    await chrome.tabs.sendMessage(tabId, { action: 'stopReplay' });
+  } catch (e) {
+    console.warn('Failed to stop current replay:', e);
+  }
+  
+  // Mark folder playback as stopped
+  state.isPlayingFolder = false;
+  state.playingFolderId = null;
+  state.folderPlayQueue = [];
+  state.currentFolderPlayIndex = 0;
+  state.currentPlayingRecordingId = null;
+  state.folderPlaybackCompleted = true;
+  
+  updateFolderPlaybackUI();
+  renderRecordingsList();
+}
+
 // Reset folder playback results
 function resetFolderResults() {
   state.folderPlayResults = {};
