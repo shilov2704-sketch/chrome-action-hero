@@ -2024,31 +2024,37 @@ async function executeStep(step, settings) {
 
           return new Promise((resolve) => {
             let done = false;
-            let obs;
+            const observers = [];
 
             const finish = (val) => {
               if (done) return;
               done = true;
-              try {
-                obs?.disconnect?.();
-              } catch (e) {
-                // ignore
-              }
+              observers.forEach(o => { try { o.disconnect(); } catch(e) {} });
               resolve(val);
             };
 
-            try {
-              obs = new MutationObserver(() => finish(true));
-              obs.observe(scope, {
-                subtree: true,
-                childList: true,
-                attributes: true,
-                characterData: true,
-              });
-            } catch (e) {
-              // If we can't observe, don't block the click.
-              return finish(true);
+            const createObs = (target) => {
+              try {
+                const obs = new MutationObserver(() => finish(true));
+                obs.observe(target, {
+                  subtree: true,
+                  childList: true,
+                  attributes: true,
+                  characterData: true,
+                });
+                observers.push(obs);
+              } catch (e) {}
+            };
+
+            // Watch local scope
+            createObs(scope);
+
+            // Also watch document.body for modals/dialogs that render outside the local scope
+            if (scope !== document.body && scope !== document.documentElement) {
+              createObs(document.body);
             }
+
+            if (observers.length === 0) return finish(true);
 
             setTimeout(() => finish(false), timeoutMs);
           });
