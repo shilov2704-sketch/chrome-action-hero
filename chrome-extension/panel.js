@@ -473,6 +473,9 @@ function initializeEventListeners() {
   
   // Save WorkItemID button
   document.getElementById('saveWorkItemIdBtn').addEventListener('click', saveWorkItemId);
+  
+  // Stop folder playback button
+  document.getElementById('stopFolderPlaybackBtn').addEventListener('click', stopFolderPlayback);
 }
 
 async function initializeTheme() {
