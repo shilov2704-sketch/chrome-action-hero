@@ -1218,6 +1218,35 @@ function selectStep(index) {
   }
 }
 
+function escapeHtmlAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlText(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function persistStepChange(stepIndex) {
+  if (!state.currentRecording) return;
+  // Update in recordings list
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+  }
+  if (!state.isRecording) {
+    saveRecordings();
+  }
+  updateCodePreview();
+}
+
 function renderStepDetails(step, isPlayback = false, stepIndex = null) {
   const containerId = isPlayback ? 'playbackStepDetails' : 'stepDetails';
   const container = document.getElementById(containerId);
