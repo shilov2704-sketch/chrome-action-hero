@@ -907,6 +907,65 @@ body {
   gap: 6px;
 }
 
+/* Editable value/text input */
+.value-edit-container {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.value-edit-container .input {
+  flex: 1;
+  font-size: 12px;
+}
+
+.btn-save-value,
+.btn-save-text {
+  background: var(--success);
+  color: white;
+  border: none;
+  white-space: nowrap;
+}
+
+.btn-save-value:hover,
+.btn-save-text:hover {
+  background: #2d9249;
+}
+
+.assertion-type-select {
+  width: 100%;
+  font-size: 12px;
+}
+
+/* Drag-and-drop reorder */
+.step-item {
+  user-select: none;
+}
+
+.step-item.dragging {
+  opacity: 0.4;
+}
+
+.step-item.drag-over-top {
+  border-top: 2px solid var(--accent-primary);
+}
+
+.step-item.drag-over-bottom {
+  border-bottom: 2px solid var(--accent-primary);
+}
+
+.step-drag-handle {
+  cursor: grab;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.step-drag-handle:active {
+  cursor: grabbing;
+}
+
 .btn-copy-xpath,
 .btn-save-xpath,
 .btn-change-locator {
