@@ -1168,7 +1168,8 @@ function renderStepsList() {
   }
 
   container.innerHTML = state.currentRecording.steps.map((step, index) => `
-    <div class="step-item" data-index="${index}">
+    <div class="step-item" data-index="${index}" draggable="true">
+      <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1194,6 +1195,77 @@ function renderStepsList() {
       deleteStep(index);
     });
   });
+
+  // Drag-and-drop reordering
+  attachStepDragHandlers(container, () => {
+    renderStepsList();
+    updateCodePreview();
+    if (!state.isRecording) saveRecordings();
+  });
+}
+
+// Attach HTML5 drag-and-drop handlers to reorder steps in current recording.
+function attachStepDragHandlers(container, onReorder) {
+  let dragSrcIndex = null;
+
+  container.querySelectorAll('.step-item').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      dragSrcIndex = parseInt(item.dataset.index);
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', String(dragSrcIndex)); } catch (_) {}
+    });
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      container.querySelectorAll('.step-item').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+    });
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = item.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      item.classList.toggle('drag-over-top', isAbove);
+      item.classList.toggle('drag-over-bottom', !isAbove);
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetIndex = parseInt(item.dataset.index);
+      item.classList.remove('drag-over-top', 'drag-over-bottom');
+
+      if (dragSrcIndex === null || isNaN(targetIndex) || dragSrcIndex === targetIndex) {
+        dragSrcIndex = null;
+        return;
+      }
+      if (!state.currentRecording || !Array.isArray(state.currentRecording.steps)) {
+        dragSrcIndex = null;
+        return;
+      }
+
+      const rect = item.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      let insertAt = isAbove ? targetIndex : targetIndex + 1;
+
+      const steps = state.currentRecording.steps;
+      const [moved] = steps.splice(dragSrcIndex, 1);
+      if (dragSrcIndex < insertAt) insertAt -= 1;
+      steps.splice(insertAt, 0, moved);
+
+      state.selectedStep = insertAt;
+      dragSrcIndex = null;
+
+      if (typeof onReorder === 'function') onReorder();
+    });
+  });
 }
 
 function selectStep(index) {
@@ -1216,6 +1288,35 @@ function selectStep(index) {
     const step = state.currentRecording.steps[index];
     renderStepDetails(step, false, index);
   }
+}
+
+function escapeHtmlAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtmlText(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function persistStepChange(stepIndex) {
+  if (!state.currentRecording) return;
+  // Update in recordings list
+  const recordingIndex = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+  if (recordingIndex !== -1) {
+    state.recordings[recordingIndex] = state.currentRecording;
+  }
+  if (!state.isRecording) {
+    saveRecordings();
+  }
+  updateCodePreview();
 }
 
 function renderStepDetails(step, isPlayback = false, stepIndex = null) {
@@ -1293,6 +1394,99 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
     `;
   }
 
+  // Editable value for "change" steps (input data the user types)
+  const isChangeStep = step.type === 'change';
+  const isWaitStep = step.type === 'waitForElement';
+
+  // Determine current assertion type for waitForElement
+  const assertionType = step.assertionType || (
+    step.value !== undefined && step.value !== '' ? 'value' :
+    step.text !== undefined && step.text !== '' ? 'text' :
+    'exists'
+  );
+
+  let valueRowHTML = '';
+  if (isChangeStep) {
+    const safeVal = step.value !== undefined && step.value !== null ? String(step.value) : '';
+    valueRowHTML = `
+      <tr>
+        <th>Value</th>
+        <td>
+          <div class="value-edit-container">
+            <input type="text" class="value-input input" value="${escapeHtmlAttr(safeVal)}" placeholder="Вводимое значение">
+            <button class="btn btn-small btn-save-value" title="Сохранить значение">💾 Сохранить</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  } else if (step.value !== undefined && (!isWaitStep || assertionType === 'value')) {
+    valueRowHTML = `
+      <tr>
+        <th>Value</th>
+        <td>${escapeHtmlText(String(step.value))}</td>
+      </tr>
+    `;
+  }
+
+  let assertionTypeHTML = '';
+  if (isWaitStep) {
+    assertionTypeHTML = `
+      <tr>
+        <th>Проверка</th>
+        <td>
+          <select class="input assertion-type-select">
+            <option value="exists" ${assertionType === 'exists' ? 'selected' : ''}>Элемент существует</option>
+            <option value="notExists" ${assertionType === 'notExists' ? 'selected' : ''}>Элемент отсутствует</option>
+            <option value="disabled" ${assertionType === 'disabled' ? 'selected' : ''}>Элемент задизейблен</option>
+            <option value="enabled" ${assertionType === 'enabled' ? 'selected' : ''}>Элемент активен</option>
+            <option value="text" ${assertionType === 'text' ? 'selected' : ''}>Содержит текст</option>
+            <option value="value" ${assertionType === 'value' ? 'selected' : ''}>Имеет value</option>
+          </select>
+        </td>
+      </tr>
+    `;
+  }
+
+  let textRowHTML = '';
+  if (isWaitStep && assertionType === 'text') {
+    const safeText = step.text !== undefined && step.text !== null ? String(step.text) : '';
+    textRowHTML = `
+      <tr>
+        <th>Text</th>
+        <td>
+          <div class="value-edit-container">
+            <input type="text" class="text-input input" value="${escapeHtmlAttr(safeText)}" placeholder="Ожидаемый текст">
+            <button class="btn btn-small btn-save-text" title="Сохранить текст">💾 Сохранить</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  } else if (!isWaitStep && step.text !== undefined) {
+    textRowHTML = `
+      <tr>
+        <th>Text</th>
+        <td>${escapeHtmlText(String(step.text))}</td>
+      </tr>
+    `;
+  }
+
+  // Editable expected value for waitForElement when assertionType is "value"
+  let assertValueHTML = '';
+  if (isWaitStep && assertionType === 'value') {
+    const safeVal = step.value !== undefined && step.value !== null ? String(step.value) : '';
+    assertValueHTML = `
+      <tr>
+        <th>Expected Value</th>
+        <td>
+          <div class="value-edit-container">
+            <input type="text" class="value-input input" value="${escapeHtmlAttr(safeVal)}" placeholder="Ожидаемое value">
+            <button class="btn btn-small btn-save-value" title="Сохранить значение">💾 Сохранить</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
   container.innerHTML = `
     <table class="step-details-table">
       <tr>
@@ -1302,7 +1496,7 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
       ${step.url ? `
         <tr>
           <th>URL</th>
-          <td style="word-break: break-all;">${step.url}</td>
+          <td style="word-break: break-all;">${escapeHtmlText(step.url)}</td>
         </tr>
       ` : ''}
       ${selectorsHTML}
@@ -1311,25 +1505,17 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
       ${step.name ? `
         <tr>
           <th>Name</th>
-          <td>${step.name}</td>
+          <td>${escapeHtmlText(String(step.name))}</td>
         </tr>
       ` : ''}
-      ${step.value !== undefined ? `
-        <tr>
-          <th>Value</th>
-          <td>${step.value}</td>
-        </tr>
-      ` : ''}
-      ${step.text !== undefined ? `
-        <tr>
-          <th>Text</th>
-          <td>${step.text}</td>
-        </tr>
-      ` : ''}
+      ${assertionTypeHTML}
+      ${assertValueHTML}
+      ${valueRowHTML}
+      ${textRowHTML}
       ${step.key ? `
         <tr>
           <th>Key</th>
-          <td>${step.key}</td>
+          <td>${escapeHtmlText(String(step.key))}</td>
         </tr>
       ` : ''}
     </table>
@@ -1339,7 +1525,69 @@ function renderStepDetails(step, isPlayback = false, stepIndex = null) {
   const copyBtn = container.querySelector('.btn-copy-xpath');
   const xpathInput = container.querySelector('.xpath-input');
   const changeLocatorBtn = container.querySelector('.btn-change-locator');
-  
+
+  // Save edited value (for change step or waitForElement value assertion)
+  const valueInput = container.querySelector('.value-input');
+  const saveValueBtn = container.querySelector('.btn-save-value');
+  if (valueInput && saveValueBtn && currentStepIndex !== null) {
+    const saveValue = () => {
+      const newVal = valueInput.value;
+      const targetStep = state.currentRecording.steps[currentStepIndex];
+      if (!targetStep) return;
+      targetStep.value = newVal;
+      persistStepChange(currentStepIndex);
+      saveValueBtn.textContent = '✓ Сохранено';
+      setTimeout(() => { saveValueBtn.textContent = '💾 Сохранить'; }, 1500);
+    };
+    saveValueBtn.addEventListener('click', saveValue);
+    valueInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveValue(); }
+    });
+  }
+
+  // Save edited text (for waitForElement text assertion)
+  const textInput = container.querySelector('.text-input');
+  const saveTextBtn = container.querySelector('.btn-save-text');
+  if (textInput && saveTextBtn && currentStepIndex !== null) {
+    const saveText = () => {
+      const targetStep = state.currentRecording.steps[currentStepIndex];
+      if (!targetStep) return;
+      targetStep.text = textInput.value;
+      persistStepChange(currentStepIndex);
+      saveTextBtn.textContent = '✓ Сохранено';
+      setTimeout(() => { saveTextBtn.textContent = '💾 Сохранить'; }, 1500);
+    };
+    saveTextBtn.addEventListener('click', saveText);
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); saveText(); }
+    });
+  }
+
+  // Assertion type changer
+  const assertionSelect = container.querySelector('.assertion-type-select');
+  if (assertionSelect && currentStepIndex !== null) {
+    assertionSelect.addEventListener('change', () => {
+      const targetStep = state.currentRecording.steps[currentStepIndex];
+      if (!targetStep) return;
+      const newType = assertionSelect.value;
+      targetStep.assertionType = newType;
+      // Clean up irrelevant fields based on assertion type
+      if (newType !== 'value') {
+        // Keep value field but it won't be asserted
+      }
+      if (newType !== 'text') {
+        // Keep text field but it won't be asserted
+      }
+      persistStepChange(currentStepIndex);
+      // Re-render to reflect input fields visibility
+      if (isPlayback) {
+        renderPlaybackStepDetails(targetStep, currentStepIndex);
+      } else {
+        renderStepDetails(targetStep, false, currentStepIndex);
+      }
+    });
+  }
+
   if (copyBtn && xpathInput) {
     copyBtn.addEventListener('click', async () => {
       const xpath = xpathInput.value;
@@ -1422,7 +1670,8 @@ function renderPlaybackView() {
     else if (stepResult === 'error') stepResultClass = 'step-error';
     
     return `
-      <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}">
+      <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}" draggable="true">
+        <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
         <div class="step-number">${index + 1}</div>
         <div class="step-type">${step.type}</div>
         <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1468,7 +1717,13 @@ function renderPlaybackView() {
       deleteStep(index);
     });
   });
-  
+
+  // Drag-and-drop reordering (also works in playback view)
+  attachStepDragHandlers(container, () => {
+    renderPlaybackView();
+    if (!state.isRecording) saveRecordings();
+  });
+
   // Update code preview
   updateCodePreview();
   
