@@ -2403,19 +2403,55 @@ async function executeStep(step, settings) {
         Number.isFinite(step?.timeout) ? step.timeout : 0,
         5000
       );
-      const shouldAssertValue =
-        step.value !== undefined &&
-        step.value !== '' &&
-        !isEphemeralResourceReference(step.value);
-      const shouldAssertText =
-        step.text !== undefined &&
-        step.text !== '' &&
-        !isEphemeralResourceReference(step.text);
+
+      // Determine assertion type. Default ('exists') keeps backward-compatible behavior:
+      // if value/text was recorded, it's asserted; otherwise just element existence.
+      const explicitType = step.assertionType;
+      const shouldAssertValue = explicitType
+        ? explicitType === 'value'
+        : (step.value !== undefined && step.value !== '' && !isEphemeralResourceReference(step.value));
+      const shouldAssertText = explicitType
+        ? explicitType === 'text'
+        : (step.text !== undefined && step.text !== '' && !isEphemeralResourceReference(step.text));
+      const shouldAssertNotExists = explicitType === 'notExists';
+      const shouldAssertDisabled = explicitType === 'disabled';
+      const shouldAssertEnabled = explicitType === 'enabled';
 
       const startTime = Date.now();
       let lastValue = '';
       let lastText = '';
       let satisfied = false;
+      let lastDisabledState = null;
+
+      // Special case: notExists — we wait for the element to disappear (or never appear).
+      if (shouldAssertNotExists) {
+        while (Date.now() - startTime < effectiveTimeout) {
+          const el = findElement(step.selectors);
+          if (!el) {
+            satisfied = true;
+            break;
+          }
+          // If element exists but is hidden, treat as not visible -> success when 'visible' flag is on
+          if (step.visible) {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            const opacity = Number.parseFloat(style.opacity || '1');
+            const isVisible =
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              opacity > 0 &&
+              rect.width > 0 &&
+              rect.height > 0;
+            if (!isVisible) {
+              satisfied = true;
+              break;
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        if (satisfied) break;
+        throw new Error('Assertion failed: element still exists on the page');
+      }
 
       while (Date.now() - startTime < effectiveTimeout) {
         const el = findElement(step.selectors);
@@ -2445,10 +2481,25 @@ async function executeStep(step, settings) {
 
         let assertionsPass = true;
 
+        // Disabled / enabled checks
+        if (shouldAssertDisabled || shouldAssertEnabled) {
+          const target = resolveEditableElement(el) || el;
+          const isDisabled =
+            target.disabled === true ||
+            target.getAttribute?.('disabled') !== null ||
+            target.getAttribute?.('aria-disabled') === 'true' ||
+            target.classList?.contains('disabled') ||
+            el.getAttribute?.('aria-disabled') === 'true' ||
+            el.classList?.contains('disabled');
+          lastDisabledState = isDisabled;
+          if (shouldAssertDisabled && !isDisabled) assertionsPass = false;
+          if (shouldAssertEnabled && isDisabled) assertionsPass = false;
+        }
+
         // If value assertion is present and non-empty, verify it (but keep waiting until timeout)
         // Empty string value means "just check element exists", skip value assertion.
         // blob: URLs are regenerated on each render, so exact assertion is unstable and meaningless.
-        if (shouldAssertValue) {
+        if (assertionsPass && shouldAssertValue) {
           const expected = String(step.value);
           const target = resolveEditableElement(el);
           const actual = String(
@@ -2489,6 +2540,12 @@ async function executeStep(step, settings) {
       }
 
       // Timeout reached — throw the most relevant error
+      if (shouldAssertDisabled) {
+        throw new Error(`Assertion failed: expected element to be disabled (was ${lastDisabledState ? 'disabled' : 'enabled'})`);
+      }
+      if (shouldAssertEnabled) {
+        throw new Error(`Assertion failed: expected element to be enabled (was ${lastDisabledState ? 'disabled' : 'enabled'})`);
+      }
       if (shouldAssertValue) {
         throw new Error(
           `Value assertion failed. Expected: "${step.value}", Actual: "${lastValue}"`
