@@ -1717,7 +1717,13 @@ function renderPlaybackView() {
       deleteStep(index);
     });
   });
-  
+
+  // Drag-and-drop reordering (also works in playback view)
+  attachStepDragHandlers(container, () => {
+    renderPlaybackView();
+    if (!state.isRecording) saveRecordings();
+  });
+
   // Update code preview
   updateCodePreview();
   
