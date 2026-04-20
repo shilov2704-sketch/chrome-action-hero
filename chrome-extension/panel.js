@@ -1168,7 +1168,8 @@ function renderStepsList() {
   }
 
   container.innerHTML = state.currentRecording.steps.map((step, index) => `
-    <div class="step-item" data-index="${index}">
+    <div class="step-item" data-index="${index}" draggable="true">
+      <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1192,6 +1193,77 @@ function renderStepsList() {
       e.stopPropagation();
       const index = parseInt(btn.dataset.index);
       deleteStep(index);
+    });
+  });
+
+  // Drag-and-drop reordering
+  attachStepDragHandlers(container, () => {
+    renderStepsList();
+    updateCodePreview();
+    if (!state.isRecording) saveRecordings();
+  });
+}
+
+// Attach HTML5 drag-and-drop handlers to reorder steps in current recording.
+function attachStepDragHandlers(container, onReorder) {
+  let dragSrcIndex = null;
+
+  container.querySelectorAll('.step-item').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      dragSrcIndex = parseInt(item.dataset.index);
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', String(dragSrcIndex)); } catch (_) {}
+    });
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      container.querySelectorAll('.step-item').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+    });
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = item.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      item.classList.toggle('drag-over-top', isAbove);
+      item.classList.toggle('drag-over-bottom', !isAbove);
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetIndex = parseInt(item.dataset.index);
+      item.classList.remove('drag-over-top', 'drag-over-bottom');
+
+      if (dragSrcIndex === null || isNaN(targetIndex) || dragSrcIndex === targetIndex) {
+        dragSrcIndex = null;
+        return;
+      }
+      if (!state.currentRecording || !Array.isArray(state.currentRecording.steps)) {
+        dragSrcIndex = null;
+        return;
+      }
+
+      const rect = item.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      let insertAt = isAbove ? targetIndex : targetIndex + 1;
+
+      const steps = state.currentRecording.steps;
+      const [moved] = steps.splice(dragSrcIndex, 1);
+      if (dragSrcIndex < insertAt) insertAt -= 1;
+      steps.splice(insertAt, 0, moved);
+
+      state.selectedStep = insertAt;
+      dragSrcIndex = null;
+
+      if (typeof onReorder === 'function') onReorder();
     });
   });
 }
