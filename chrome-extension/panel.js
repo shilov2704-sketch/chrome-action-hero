@@ -1670,7 +1670,8 @@ function renderPlaybackView() {
     else if (stepResult === 'error') stepResultClass = 'step-error';
     
     return `
-      <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}">
+      <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}" draggable="true">
+        <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
         <div class="step-number">${index + 1}</div>
         <div class="step-type">${step.type}</div>
         <div class="step-icon">${getStepIcon(step.type)}</div>
