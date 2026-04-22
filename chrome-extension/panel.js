@@ -725,7 +725,8 @@ async function addAssertion() {
     selectors: [],
     visible: true,
     timeout: 5000,
-    target: 'main'
+    target: 'main',
+    assertionType: 'exists'
   };
 
   state.currentRecording.steps.push(assertion);
@@ -752,7 +753,8 @@ async function addAssertionInPlayback() {
     selectors: [],
     visible: true,
     timeout: 5000,
-    target: 'main'
+    target: 'main',
+    assertionType: 'exists'
   };
 
   state.currentRecording.steps.push(assertion);
@@ -2054,6 +2056,10 @@ function prepareRecordingForExport(recording) {
       exportStep.do = 'action';
     } else if (step.type === 'waitForElement') {
       exportStep.do = 'check';
+      // Ensure assertionType is always present for waitForElement steps
+      if (!exportStep.assertionType) {
+        exportStep.assertionType = 'exists';
+      }
     }
     
     // Extract path (xpath)
