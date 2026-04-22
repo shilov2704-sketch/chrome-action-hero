@@ -2102,11 +2102,14 @@ function prepareRecordingForExport(recording) {
     if (exportStep.do !== undefined) orderedStep.value = exportStep.value;
     if (exportStep.do !== undefined) orderedStep.path = exportStep.path;
     
-    // Add remaining properties
+    // Add remaining properties (assertionType added last so it sits after `text`)
     for (const key of Object.keys(exportStep)) {
-      if (!['do', 'type', 'name', 'value', 'path'].includes(key)) {
+      if (!['do', 'type', 'name', 'value', 'path', 'assertionType'].includes(key)) {
         orderedStep[key] = exportStep[key];
       }
+    }
+    if (exportStep.assertionType !== undefined) {
+      orderedStep.assertionType = exportStep.assertionType;
     }
     
     processedSteps.push(orderedStep);
