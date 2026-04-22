@@ -753,7 +753,8 @@ async function addAssertionInPlayback() {
     selectors: [],
     visible: true,
     timeout: 5000,
-    target: 'main'
+    target: 'main',
+    assertionType: 'exists'
   };
 
   state.currentRecording.steps.push(assertion);
