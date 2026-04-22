@@ -2056,6 +2056,10 @@ function prepareRecordingForExport(recording) {
       exportStep.do = 'action';
     } else if (step.type === 'waitForElement') {
       exportStep.do = 'check';
+      // Ensure assertionType is always present for waitForElement steps
+      if (!exportStep.assertionType) {
+        exportStep.assertionType = 'exists';
+      }
     }
     
     // Extract path (xpath)
