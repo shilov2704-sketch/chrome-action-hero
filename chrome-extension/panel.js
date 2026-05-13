@@ -731,9 +731,14 @@ function handleRecordedEvent(message) {
     steps.push(step);
     // Drop only "consumed" non-HEAD requests; HEAD requests (preflight/keepalive
     // polling) should not cause the picker list to reset.
-    state.recentRequests = (state.recentRequests || []).filter(
-      r => String(r.method || '').toUpperCase() === 'HEAD'
-    );
+    // Exception: when the step we just added is itself a requestAssertion,
+    // keep the buffer intact so the user can add multiple request assertions
+    // in a row from the same captured window.
+    if (step.type !== 'requestAssertion') {
+      state.recentRequests = (state.recentRequests || []).filter(
+        r => String(r.method || '').toUpperCase() === 'HEAD'
+      );
+    }
     renderStepsList();
     updateCodePreview();
   }
