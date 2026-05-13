@@ -1779,6 +1779,25 @@ function renderPlaybackStepDetails(step, stepIndex = null) {
   renderStepDetails(step, true, stepIndex !== null ? stepIndex : state.selectedStep);
 }
 
+// Enable Add Assertion / Add Request Assertion buttons only while the user is
+// actively recording (initial recording or "Continue recording" in playback view).
+function updateAssertionButtonsAvailability() {
+  const active = !!state.isRecording;
+  const ids = [
+    'addAssertionBtn',
+    'addRequestAssertionBtn',
+    'playbackAddAssertionBtn',
+    'playbackAddRequestAssertionBtn'
+  ];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = !active;
+    el.title = active ? '' : 'Доступно только во время записи';
+    el.classList.toggle('btn-disabled', !active);
+  });
+}
+
 // Extract current host from recording
 function getCurrentHostFromRecording(recording) {
   if (!recording || !recording.steps) return null;
