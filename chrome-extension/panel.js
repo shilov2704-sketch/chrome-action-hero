@@ -1770,6 +1770,9 @@ function renderPlaybackView() {
   
   // Update host info for settings tab
   updateHostInfo();
+  // Toggle Add Assertion / Add Request Assertion availability:
+  // active ONLY while user actively continues recording in playback view.
+  updateAssertionButtonsAvailability();
 }
 
 function renderPlaybackStepDetails(step, stepIndex = null) {
