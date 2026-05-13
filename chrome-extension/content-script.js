@@ -7,6 +7,31 @@ let isReplaying = false;
 let noDataTestIdMode = false;
 let inputDebounceTimers = new Map();
 
+// Network capture (populated by page-network-hook.js via window.postMessage).
+// During replay we keep a rolling buffer to match against requestAssertion steps.
+let capturedRequestsBuffer = [];
+let capturedRequestsCursor = 0; // index of first un-consumed request during replay
+const CAPTURED_BUFFER_LIMIT = 500;
+
+window.addEventListener('message', (e) => {
+  if (!e || e.source !== window) return;
+  const data = e.data;
+  if (!data || data.__qaNet !== true || !data.request) return;
+  const req = data.request;
+  // Always keep a small rolling buffer (used by replay).
+  capturedRequestsBuffer.push(req);
+  if (capturedRequestsBuffer.length > CAPTURED_BUFFER_LIMIT) {
+    capturedRequestsBuffer.splice(0, capturedRequestsBuffer.length - CAPTURED_BUFFER_LIMIT);
+    capturedRequestsCursor = Math.max(0, capturedRequestsCursor - 1);
+  }
+  // Forward to panel only while recording (so the user can pick from "since last step").
+  if (isRecording) {
+    try {
+      chrome.runtime.sendMessage({ action: 'capturedRequest', request: req });
+    } catch (err) {}
+  }
+});
+
 // Listen for messages from panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startRecording') {
