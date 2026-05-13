@@ -729,9 +729,11 @@ function handleRecordedEvent(message) {
       return; // ignore duplicate
     }
     steps.push(step);
-    // Reset the rolling "requests since last step" buffer — only requests that
-    // happen AFTER this newly-recorded step should be offered for the next assertion.
-    state.recentRequests = [];
+    // Drop only "consumed" non-HEAD requests; HEAD requests (preflight/keepalive
+    // polling) should not cause the picker list to reset.
+    state.recentRequests = (state.recentRequests || []).filter(
+      r => String(r.method || '').toUpperCase() === 'HEAD'
+    );
     renderStepsList();
     updateCodePreview();
   }
