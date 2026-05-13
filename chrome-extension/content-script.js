@@ -7,6 +7,31 @@ let isReplaying = false;
 let noDataTestIdMode = false;
 let inputDebounceTimers = new Map();
 
+// Network capture (populated by page-network-hook.js via window.postMessage).
+// During replay we keep a rolling buffer to match against requestAssertion steps.
+let capturedRequestsBuffer = [];
+let capturedRequestsCursor = 0; // index of first un-consumed request during replay
+const CAPTURED_BUFFER_LIMIT = 500;
+
+window.addEventListener('message', (e) => {
+  if (!e || e.source !== window) return;
+  const data = e.data;
+  if (!data || data.__qaNet !== true || !data.request) return;
+  const req = data.request;
+  // Always keep a small rolling buffer (used by replay).
+  capturedRequestsBuffer.push(req);
+  if (capturedRequestsBuffer.length > CAPTURED_BUFFER_LIMIT) {
+    capturedRequestsBuffer.splice(0, capturedRequestsBuffer.length - CAPTURED_BUFFER_LIMIT);
+    capturedRequestsCursor = Math.max(0, capturedRequestsCursor - 1);
+  }
+  // Forward to panel only while recording (so the user can pick from "since last step").
+  if (isRecording) {
+    try {
+      chrome.runtime.sendMessage({ action: 'capturedRequest', request: req });
+    } catch (err) {}
+  }
+});
+
 // Listen for messages from panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startRecording') {
@@ -1378,6 +1403,13 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
   isReplaying = true;
   const delay = speed === 'slow' ? 1000 : 100;
 
+  // Reset captured network buffer at the start of a fresh replay run
+  // (but preserve when resuming after navigation: startIndex > 0).
+  if (startIndex === 0) {
+    capturedRequestsBuffer = [];
+    capturedRequestsCursor = 0;
+  }
+
   for (let i = 0; i < recording.steps.length; i++) {
     const actualIndex = startIndex + i;
     // Check if replay was stopped
@@ -2557,6 +2589,81 @@ async function executeStep(step, settings) {
         );
       }
       throw new Error('Element not found within timeout');
+    }
+
+    case 'requestAssertion': {
+      const effectiveTimeout = Math.max(
+        Number.isFinite(settings?.timeout) ? settings.timeout : 0,
+        Number.isFinite(step?.timeout) ? step.timeout : 0,
+        5000
+      );
+      const expectedMethod = String(step.method || '').toUpperCase();
+      const expectedUrl = String(step.url || '');
+      const checkUrl = step.checkUrl !== false; // url is mandatory match key
+      const checkBody = step.checkBody === true;
+      const expectedBody = step.expectedBody !== undefined ? String(step.expectedBody) : '';
+      const headerChecks = Array.isArray(step.checkHeaders) ? step.checkHeaders : [];
+
+      const matchesRequest = (req) => {
+        if (!req) return false;
+        if (expectedMethod && String(req.method || '').toUpperCase() !== expectedMethod) return false;
+        if (checkUrl && String(req.url || '') !== expectedUrl) return false;
+        return true;
+      };
+
+      const validateRequest = (req) => {
+        // Returns null on success, otherwise an error message.
+        if (checkBody) {
+          const actual = req.body == null ? '' : String(req.body);
+          if (actual !== expectedBody) {
+            return `Request body mismatch.\nExpected: ${expectedBody}\nActual: ${actual}`;
+          }
+        }
+        if (headerChecks.length > 0) {
+          // Build case-insensitive header map
+          const lower = {};
+          Object.keys(req.headers || {}).forEach(k => { lower[k.toLowerCase()] = req.headers[k]; });
+          for (const h of headerChecks) {
+            const name = String(h.name || '').toLowerCase();
+            const expected = String(h.value !== undefined ? h.value : '');
+            const actual = lower[name];
+            if (actual === undefined) {
+              return `Header "${h.name}" is missing from the request`;
+            }
+            if (String(actual) !== expected) {
+              return `Header "${h.name}" mismatch.\nExpected: ${expected}\nActual: ${actual}`;
+            }
+          }
+        }
+        return null;
+      };
+
+      const startTime = Date.now();
+      let lastValidationError = null;
+      while (Date.now() - startTime < effectiveTimeout) {
+        // Search forward through the buffer starting from cursor
+        for (let i = capturedRequestsCursor; i < capturedRequestsBuffer.length; i++) {
+          const req = capturedRequestsBuffer[i];
+          if (!matchesRequest(req)) continue;
+          const err = validateRequest(req);
+          if (err) {
+            // Mark this request consumed and remember the failure (in case nothing better arrives)
+            capturedRequestsCursor = i + 1;
+            lastValidationError = err;
+            continue;
+          }
+          capturedRequestsCursor = i + 1;
+          return; // success
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      if (lastValidationError) {
+        throw new Error('Request assertion failed: ' + lastValidationError);
+      }
+      throw new Error(
+        `Request assertion failed: no matching ${expectedMethod || ''} request to ${expectedUrl} captured within ${effectiveTimeout}ms`
+      );
     }
 
   }

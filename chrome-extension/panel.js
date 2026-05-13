@@ -28,7 +28,12 @@ const state = {
   folderPlaybackCompleted: false,
   playbackStepResults: {}, // For single recording playback {stepIndex: 'success' | 'error'}
   playbackCompleted: false,
-  searchQuery: '' // Search query for filtering recordings
+  searchQuery: '', // Search query for filtering recordings
+  // Network requests captured since the last recorded user action.
+  // Cleared whenever a new step is appended to the current recording.
+  recentRequests: [],
+  // Pending request-assertion editing (when re-picking a request for an existing step)
+  requestAssertionEditingStepIndex: null
 };
 
 // Initialize
@@ -476,6 +481,32 @@ function initializeEventListeners() {
   
   // Stop folder playback button
   document.getElementById('stopFolderPlaybackBtn').addEventListener('click', stopFolderPlayback);
+
+  // Request assertion buttons
+  const reqBtn = document.getElementById('addRequestAssertionBtn');
+  if (reqBtn) reqBtn.addEventListener('click', () => openRequestAssertionPicker(false));
+  const reqBtnPb = document.getElementById('playbackAddRequestAssertionBtn');
+  if (reqBtnPb) reqBtnPb.addEventListener('click', () => openRequestAssertionPicker(true));
+
+  // Modal close handlers
+  const modal = document.getElementById('requestAssertionModal');
+  if (modal) {
+    modal.querySelectorAll('[data-close]').forEach(el => {
+      el.addEventListener('click', closeRequestAssertionModal);
+    });
+    const backdrop = modal.querySelector('.qa-modal-backdrop');
+    if (backdrop) backdrop.addEventListener('click', closeRequestAssertionModal);
+  }
+
+  // Listen for captured network requests during recording
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.action === 'capturedRequest' && state.isRecording) {
+      state.recentRequests.push(message.request);
+      if (state.recentRequests.length > 200) {
+        state.recentRequests.splice(0, state.recentRequests.length - 200);
+      }
+    }
+  });
 }
 
 async function initializeTheme() {
@@ -698,6 +729,9 @@ function handleRecordedEvent(message) {
       return; // ignore duplicate
     }
     steps.push(step);
+    // Reset the rolling "requests since last step" buffer — only requests that
+    // happen AFTER this newly-recorded step should be offered for the next assertion.
+    state.recentRequests = [];
     renderStepsList();
     updateCodePreview();
   }
@@ -3137,3 +3171,333 @@ function selectAll() {
 }
 
 // JSZip is now loaded via script tag in panel.html
+
+// ============================================================
+// Request Assertion (network checks) — picker, editor, export
+// ============================================================
+
+function makeRequestSummary(req) {
+  if (!req) return '';
+  let path = req.url || '';
+  try { const u = new URL(req.url); path = u.pathname + u.search; } catch (_) {}
+  return `${req.method} ${path}`;
+}
+
+function openRequestAssertionPicker(isPlayback, editingStepIndex = null) {
+  if (!state.currentRecording) return;
+
+  // For "change request" inside an existing step we need a non-empty buffer too,
+  // otherwise warn the user.
+  if (!state.recentRequests || state.recentRequests.length === 0) {
+    alert(
+      'Список запросов пуст.\n\nВо время записи расширение перехватывает все fetch/XHR запросы. ' +
+      'Откройте панель ДО действий, выполните действие в приложении, а затем нажмите эту кнопку — ' +
+      'появятся запросы, отправленные после последнего записанного шага.'
+    );
+    return;
+  }
+
+  state.requestAssertionEditingStepIndex = editingStepIndex;
+  state._requestAssertionContext = { isPlayback };
+  renderRequestPickerStep();
+  showRequestAssertionModal();
+}
+
+function showRequestAssertionModal() {
+  const modal = document.getElementById('requestAssertionModal');
+  if (modal) modal.style.display = 'block';
+}
+
+function closeRequestAssertionModal() {
+  const modal = document.getElementById('requestAssertionModal');
+  if (modal) modal.style.display = 'none';
+  state.requestAssertionEditingStepIndex = null;
+  state._requestAssertionContext = null;
+  state._requestAssertionDraft = null;
+  const confirmBtn = document.getElementById('requestAssertionConfirmBtn');
+  if (confirmBtn) confirmBtn.style.display = 'none';
+}
+
+function renderRequestPickerStep() {
+  document.getElementById('requestAssertionModalTitle').textContent =
+    state.requestAssertionEditingStepIndex !== null
+      ? 'Выберите новый запрос'
+      : 'Выберите запрос для проверки';
+  document.getElementById('requestAssertionConfirmBtn').style.display = 'none';
+
+  const body = document.getElementById('requestAssertionModalBody');
+  const groups = { GET: [], POST: [], PUT: [], PATCH: [], DELETE: [], HEAD: [] };
+  state.recentRequests.forEach((req, idx) => {
+    const m = (req.method || 'GET').toUpperCase();
+    if (!groups[m]) groups[m] = [];
+    groups[m].push({ req, idx });
+  });
+
+  const order = ['GET', 'POST', 'PATCH', 'PUT', 'HEAD', 'DELETE'];
+  let html = '';
+  let total = 0;
+  for (const m of order) {
+    const list = groups[m] || [];
+    if (list.length === 0) continue;
+    total += list.length;
+    html += `<div class="qa-req-group">
+      <div class="qa-req-group-title">${m} (${list.length})</div>`;
+    list.forEach(({ req, idx }) => {
+      let path = req.url;
+      try { const u = new URL(req.url); path = u.pathname + u.search; } catch (_) {}
+      html += `<div class="qa-req-item" data-req-index="${idx}">
+        <span class="qa-req-method ${m}">${m}</span>
+        <span class="qa-req-url">${escapeHtmlText(path)}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  if (total === 0) {
+    html = `<div class="qa-req-empty">Нет перехваченных запросов</div>`;
+  }
+  body.innerHTML = html;
+
+  body.querySelectorAll('.qa-req-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.reqIndex, 10);
+      const req = state.recentRequests[idx];
+      if (req) renderRequestConfigureStep(req);
+    });
+  });
+}
+
+function renderRequestConfigureStep(req) {
+  document.getElementById('requestAssertionModalTitle').textContent =
+    'Настройте проверки запроса';
+
+  // Initialize draft based on request (or pre-fill from existing step if editing)
+  const existing = state.requestAssertionEditingStepIndex !== null
+    ? state.currentRecording.steps[state.requestAssertionEditingStepIndex]
+    : null;
+
+  const draft = {
+    method: (req.method || 'GET').toUpperCase(),
+    url: req.url || '',
+    headers: req.headers || {},
+    body: req.body == null ? '' : String(req.body),
+    checkUrl: existing ? (existing.checkUrl !== false) : true,
+    checkBody: existing ? !!existing.checkBody : false,
+    checkHeaders: existing && Array.isArray(existing.checkHeaders)
+      ? new Set(existing.checkHeaders.map(h => String(h.name).toLowerCase()))
+      : new Set()
+  };
+  state._requestAssertionDraft = draft;
+
+  const headerEntries = Object.keys(draft.headers).sort();
+  const headersHtml = headerEntries.length === 0
+    ? '<div class="qa-req-empty" style="padding:8px;">Нет заголовков</div>'
+    : headerEntries.map(name => {
+        const safeName = escapeHtmlAttr(name);
+        const isChecked = draft.checkHeaders.has(name.toLowerCase());
+        return `<label class="qa-req-header-row">
+          <input type="checkbox" data-header-name="${safeName}" ${isChecked ? 'checked' : ''}>
+          <span class="qa-req-header-name">${escapeHtmlText(name)}</span>
+          <span class="qa-req-header-value">${escapeHtmlText(String(draft.headers[name]))}</span>
+        </label>`;
+      }).join('');
+
+  const bodyPreview = draft.body
+    ? `<pre class="qa-req-body-preview">${escapeHtmlText(draft.body)}</pre>`
+    : '<div class="qa-req-empty" style="padding:8px;">Тело запроса отсутствует</div>';
+
+  const body = document.getElementById('requestAssertionModalBody');
+  body.innerHTML = `
+    <div class="qa-req-configure">
+      <div class="qa-req-summary">
+        <strong>${draft.method}</strong> ${escapeHtmlText(draft.url)}
+      </div>
+
+      <div class="qa-req-section">
+        <label class="qa-req-section-title">
+          <input type="checkbox" id="qaCheckUrl" ${draft.checkUrl ? 'checked' : ''}>
+          Проверять URL запроса
+        </label>
+        <div style="font-size:12px;color:#888;margin-left:24px;">
+          Точное совпадение полного URL (включая query-параметры).
+        </div>
+      </div>
+
+      <div class="qa-req-section">
+        <div class="qa-req-section-title">
+          Заголовки запроса (выберите, какие проверять)
+        </div>
+        <div class="qa-req-headers-list">${headersHtml}</div>
+      </div>
+
+      <div class="qa-req-section">
+        <label class="qa-req-section-title">
+          <input type="checkbox" id="qaCheckBody" ${draft.checkBody ? 'checked' : ''}>
+          Проверять Request body (точное совпадение)
+        </label>
+        ${bodyPreview}
+      </div>
+    </div>
+  `;
+
+  body.querySelector('#qaCheckUrl').addEventListener('change', (e) => {
+    draft.checkUrl = e.target.checked;
+  });
+  body.querySelector('#qaCheckBody').addEventListener('change', (e) => {
+    draft.checkBody = e.target.checked;
+  });
+  body.querySelectorAll('input[data-header-name]').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const name = e.target.dataset.headerName.toLowerCase();
+      if (e.target.checked) draft.checkHeaders.add(name);
+      else draft.checkHeaders.delete(name);
+    });
+  });
+
+  const confirmBtn = document.getElementById('requestAssertionConfirmBtn');
+  confirmBtn.style.display = 'inline-flex';
+  confirmBtn.onclick = saveRequestAssertion;
+}
+
+function saveRequestAssertion() {
+  const draft = state._requestAssertionDraft;
+  if (!draft || !state.currentRecording) return;
+
+  // Build checkHeaders array (preserve original casing + value)
+  const headerChecks = [];
+  Object.keys(draft.headers).forEach(name => {
+    if (draft.checkHeaders.has(name.toLowerCase())) {
+      headerChecks.push({ name, value: String(draft.headers[name]) });
+    }
+  });
+
+  // Need at least one check selected
+  if (!draft.checkUrl && !draft.checkBody && headerChecks.length === 0) {
+    alert('Выберите хотя бы одну проверку: URL, заголовки или тело запроса.');
+    return;
+  }
+
+  const stepData = {
+    type: 'requestAssertion',
+    name: makeRequestSummary({ method: draft.method, url: draft.url }),
+    method: draft.method,
+    url: draft.url,
+    checkUrl: draft.checkUrl,
+    checkHeaders: headerChecks,
+    checkBody: draft.checkBody,
+    expectedBody: draft.checkBody ? draft.body : '',
+    timeout: 5000,
+    target: 'main'
+  };
+
+  const ctx = state._requestAssertionContext || { isPlayback: false };
+
+  if (state.requestAssertionEditingStepIndex !== null) {
+    // Replace existing step (preserve nothing — user picked a new request)
+    state.currentRecording.steps[state.requestAssertionEditingStepIndex] = stepData;
+  } else {
+    state.currentRecording.steps.push(stepData);
+    // Reset the buffer so the same request isn't re-offered for the next assertion
+    state.recentRequests = [];
+  }
+
+  // Persist when in playback view (recording state auto-flushes on stop)
+  if (!state.isRecording) {
+    const recIdx = state.recordings.findIndex(r => r.id === state.currentRecording.id);
+    if (recIdx !== -1) state.recordings[recIdx] = state.currentRecording;
+    saveRecordings();
+  }
+
+  closeRequestAssertionModal();
+
+  if (ctx.isPlayback) {
+    renderPlaybackView();
+  } else {
+    renderStepsList();
+    updateCodePreview();
+  }
+}
+
+// Patch icon map for the new step type
+const __origGetStepIcon = typeof getStepIcon === 'function' ? getStepIcon : null;
+if (__origGetStepIcon) {
+  // eslint-disable-next-line no-global-assign
+  getStepIcon = function(type) {
+    if (type === 'requestAssertion') return '🌐';
+    return __origGetStepIcon(type);
+  };
+}
+
+// Render details for requestAssertion in BOTH views by hooking renderStepDetails
+const __origRenderStepDetails = renderStepDetails;
+// eslint-disable-next-line no-func-assign
+renderStepDetails = function(step, isPlayback = false, stepIndex = null) {
+  if (!step || step.type !== 'requestAssertion') {
+    return __origRenderStepDetails(step, isPlayback, stepIndex);
+  }
+  const containerId = isPlayback ? 'playbackStepDetails' : 'stepDetails';
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const currentStepIndex = stepIndex !== null ? stepIndex : state.selectedStep;
+
+  const headerRows = (step.checkHeaders || []).map(h =>
+    `<li><strong>${escapeHtmlText(h.name)}</strong>: ${escapeHtmlText(String(h.value))}</li>`
+  ).join('') || '<li style="color:#888;">—</li>';
+
+  const bodyHtml = step.checkBody
+    ? `<pre class="qa-req-body-preview">${escapeHtmlText(String(step.expectedBody || ''))}</pre>`
+    : '<div style="color:#888;font-size:12px;">не проверяется</div>';
+
+  container.innerHTML = `
+    <table class="step-details-table">
+      <tr><th>Type</th><td>requestAssertion 🌐</td></tr>
+      <tr><th>Method</th><td><strong>${escapeHtmlText(step.method || '')}</strong></td></tr>
+      <tr><th>URL</th><td style="word-break:break-all;">${escapeHtmlText(step.url || '')}</td></tr>
+      <tr><th>Проверки</th><td>
+        <ul class="qa-step-req-checks" style="margin:0;padding-left:18px;">
+          <li>URL: ${step.checkUrl !== false ? '✅ да' : '❌ нет'}</li>
+          <li>Body: ${step.checkBody ? '✅ да' : '❌ нет'}</li>
+          <li>Headers: ${(step.checkHeaders && step.checkHeaders.length) ? '✅ ' + step.checkHeaders.length : '❌ нет'}</li>
+        </ul>
+      </td></tr>
+      <tr><th>Headers</th><td><ul class="qa-step-req-checks" style="margin:0;padding-left:18px;">${headerRows}</ul></td></tr>
+      <tr><th>Expected body</th><td>${bodyHtml}</td></tr>
+      <tr><th>Timeout (ms)</th><td>${step.timeout || 5000}</td></tr>
+      <tr><th></th><td>
+        <button class="btn btn-small btn-change-request" title="Выбрать другой запрос">🔄 Поменять запрос</button>
+      </td></tr>
+    </table>
+  `;
+
+  const changeBtn = container.querySelector('.btn-change-request');
+  if (changeBtn && currentStepIndex !== null) {
+    changeBtn.addEventListener('click', () => {
+      openRequestAssertionPicker(isPlayback, currentStepIndex);
+    });
+  }
+};
+
+// Hook export to keep requestAssertion steps clean (do: 'check', stable key order)
+const __origPrepareRecordingForExport = prepareRecordingForExport;
+// eslint-disable-next-line no-func-assign
+prepareRecordingForExport = function(recording) {
+  const result = __origPrepareRecordingForExport(recording);
+  if (!result || !Array.isArray(result.steps)) return result;
+  result.steps = result.steps.map(step => {
+    if (!step || step.type !== 'requestAssertion') return step;
+    const ordered = {
+      do: 'check',
+      type: 'requestAssertion',
+      name: step.name || makeRequestSummary(step),
+      method: step.method || '',
+      url: step.url || '',
+      checkUrl: step.checkUrl !== false,
+      checkHeaders: Array.isArray(step.checkHeaders) ? step.checkHeaders : [],
+      checkBody: !!step.checkBody,
+      expectedBody: step.checkBody ? String(step.expectedBody || '') : '',
+      timeout: step.timeout || 5000,
+      target: step.target || 'main'
+    };
+    return ordered;
+  });
+  return result;
+};
