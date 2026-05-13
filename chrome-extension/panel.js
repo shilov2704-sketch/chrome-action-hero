@@ -2232,6 +2232,9 @@ function updateView() {
   });
 
   document.getElementById(`${state.currentView}View`).classList.add('active');
+  if (typeof updateAssertionButtonsAvailability === 'function') {
+    updateAssertionButtonsAvailability();
+  }
 }
 
 async function openRecording(id) {
