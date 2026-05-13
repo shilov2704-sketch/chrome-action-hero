@@ -2591,6 +2591,81 @@ async function executeStep(step, settings) {
       throw new Error('Element not found within timeout');
     }
 
+    case 'requestAssertion': {
+      const effectiveTimeout = Math.max(
+        Number.isFinite(settings?.timeout) ? settings.timeout : 0,
+        Number.isFinite(step?.timeout) ? step.timeout : 0,
+        5000
+      );
+      const expectedMethod = String(step.method || '').toUpperCase();
+      const expectedUrl = String(step.url || '');
+      const checkUrl = step.checkUrl !== false; // url is mandatory match key
+      const checkBody = step.checkBody === true;
+      const expectedBody = step.expectedBody !== undefined ? String(step.expectedBody) : '';
+      const headerChecks = Array.isArray(step.checkHeaders) ? step.checkHeaders : [];
+
+      const matchesRequest = (req) => {
+        if (!req) return false;
+        if (expectedMethod && String(req.method || '').toUpperCase() !== expectedMethod) return false;
+        if (checkUrl && String(req.url || '') !== expectedUrl) return false;
+        return true;
+      };
+
+      const validateRequest = (req) => {
+        // Returns null on success, otherwise an error message.
+        if (checkBody) {
+          const actual = req.body == null ? '' : String(req.body);
+          if (actual !== expectedBody) {
+            return `Request body mismatch.\nExpected: ${expectedBody}\nActual: ${actual}`;
+          }
+        }
+        if (headerChecks.length > 0) {
+          // Build case-insensitive header map
+          const lower = {};
+          Object.keys(req.headers || {}).forEach(k => { lower[k.toLowerCase()] = req.headers[k]; });
+          for (const h of headerChecks) {
+            const name = String(h.name || '').toLowerCase();
+            const expected = String(h.value !== undefined ? h.value : '');
+            const actual = lower[name];
+            if (actual === undefined) {
+              return `Header "${h.name}" is missing from the request`;
+            }
+            if (String(actual) !== expected) {
+              return `Header "${h.name}" mismatch.\nExpected: ${expected}\nActual: ${actual}`;
+            }
+          }
+        }
+        return null;
+      };
+
+      const startTime = Date.now();
+      let lastValidationError = null;
+      while (Date.now() - startTime < effectiveTimeout) {
+        // Search forward through the buffer starting from cursor
+        for (let i = capturedRequestsCursor; i < capturedRequestsBuffer.length; i++) {
+          const req = capturedRequestsBuffer[i];
+          if (!matchesRequest(req)) continue;
+          const err = validateRequest(req);
+          if (err) {
+            // Mark this request consumed and remember the failure (in case nothing better arrives)
+            capturedRequestsCursor = i + 1;
+            lastValidationError = err;
+            continue;
+          }
+          capturedRequestsCursor = i + 1;
+          return; // success
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      if (lastValidationError) {
+        throw new Error('Request assertion failed: ' + lastValidationError);
+      }
+      throw new Error(
+        `Request assertion failed: no matching ${expectedMethod || ''} request to ${expectedUrl} captured within ${effectiveTimeout}ms`
+      );
+    }
+
   }
 }
 
