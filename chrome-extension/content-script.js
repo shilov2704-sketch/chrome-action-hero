@@ -1403,6 +1403,13 @@ async function replayRecording(recording, speed, settings, startIndex = 0) {
   isReplaying = true;
   const delay = speed === 'slow' ? 1000 : 100;
 
+  // Reset captured network buffer at the start of a fresh replay run
+  // (but preserve when resuming after navigation: startIndex > 0).
+  if (startIndex === 0) {
+    capturedRequestsBuffer = [];
+    capturedRequestsCursor = 0;
+  }
+
   for (let i = 0; i < recording.steps.length; i++) {
     const actualIndex = startIndex + i;
     // Check if replay was stopped
