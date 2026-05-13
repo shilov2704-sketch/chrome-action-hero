@@ -729,9 +729,11 @@ function handleRecordedEvent(message) {
       return; // ignore duplicate
     }
     steps.push(step);
-    // Reset the rolling "requests since last step" buffer — only requests that
-    // happen AFTER this newly-recorded step should be offered for the next assertion.
-    state.recentRequests = [];
+    // Drop only "consumed" non-HEAD requests; HEAD requests (preflight/keepalive
+    // polling) should not cause the picker list to reset.
+    state.recentRequests = (state.recentRequests || []).filter(
+      r => String(r.method || '').toUpperCase() === 'HEAD'
+    );
     renderStepsList();
     updateCodePreview();
   }
@@ -1768,10 +1770,32 @@ function renderPlaybackView() {
   
   // Update host info for settings tab
   updateHostInfo();
+  // Toggle Add Assertion / Add Request Assertion availability:
+  // active ONLY while user actively continues recording in playback view.
+  updateAssertionButtonsAvailability();
 }
 
 function renderPlaybackStepDetails(step, stepIndex = null) {
   renderStepDetails(step, true, stepIndex !== null ? stepIndex : state.selectedStep);
+}
+
+// Enable Add Assertion / Add Request Assertion buttons only while the user is
+// actively recording (initial recording or "Continue recording" in playback view).
+function updateAssertionButtonsAvailability() {
+  const active = !!state.isRecording;
+  const ids = [
+    'addAssertionBtn',
+    'addRequestAssertionBtn',
+    'playbackAddAssertionBtn',
+    'playbackAddRequestAssertionBtn'
+  ];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = !active;
+    el.title = active ? '' : 'Доступно только во время записи';
+    el.classList.toggle('btn-disabled', !active);
+  });
 }
 
 // Extract current host from recording
@@ -2208,6 +2232,9 @@ function updateView() {
   });
 
   document.getElementById(`${state.currentView}View`).classList.add('active');
+  if (typeof updateAssertionButtonsAvailability === 'function') {
+    updateAssertionButtonsAvailability();
+  }
 }
 
 async function openRecording(id) {
@@ -3462,9 +3489,6 @@ renderStepDetails = function(step, isPlayback = false, stepIndex = null) {
       <tr><th>Headers</th><td><ul class="qa-step-req-checks" style="margin:0;padding-left:18px;">${headerRows}</ul></td></tr>
       <tr><th>Expected body</th><td>${bodyHtml}</td></tr>
       <tr><th>Timeout (ms)</th><td>${step.timeout || 5000}</td></tr>
-      <tr><th></th><td>
-        <button class="btn btn-small btn-change-request" title="Выбрать другой запрос">🔄 Поменять запрос</button>
-      </td></tr>
     </table>
   `;
 

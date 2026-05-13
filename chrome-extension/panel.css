@@ -497,8 +497,9 @@ body {
 }
 
 .steps-panel {
-  width: 300px;
-  min-width: 200px;
+  width: 260px;
+  min-width: 220px;
+  flex-shrink: 0;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -507,15 +508,34 @@ body {
 
 .steps-header {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   align-items: center;
-  padding: 10px 16px;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .steps-header h3 {
   font-size: 12px;
   font-weight: 500;
+  width: 100%;
+  margin: 0 0 2px 0;
+}
+
+.steps-header .btn {
+  white-space: normal;
+  line-height: 1.15;
+  text-align: left;
+  padding: 4px 8px;
+  font-size: 11px;
+  flex: 0 1 auto;
+}
+
+.btn-disabled,
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .steps-list {
@@ -661,6 +681,7 @@ body {
 /* Details Panel */
 .details-panel {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
