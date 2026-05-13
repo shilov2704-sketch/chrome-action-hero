@@ -3464,9 +3464,6 @@ renderStepDetails = function(step, isPlayback = false, stepIndex = null) {
       <tr><th>Headers</th><td><ul class="qa-step-req-checks" style="margin:0;padding-left:18px;">${headerRows}</ul></td></tr>
       <tr><th>Expected body</th><td>${bodyHtml}</td></tr>
       <tr><th>Timeout (ms)</th><td>${step.timeout || 5000}</td></tr>
-      <tr><th></th><td>
-        <button class="btn btn-small btn-change-request" title="Выбрать другой запрос">🔄 Поменять запрос</button>
-      </td></tr>
     </table>
   `;
 
