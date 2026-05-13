@@ -481,6 +481,32 @@ function initializeEventListeners() {
   
   // Stop folder playback button
   document.getElementById('stopFolderPlaybackBtn').addEventListener('click', stopFolderPlayback);
+
+  // Request assertion buttons
+  const reqBtn = document.getElementById('addRequestAssertionBtn');
+  if (reqBtn) reqBtn.addEventListener('click', () => openRequestAssertionPicker(false));
+  const reqBtnPb = document.getElementById('playbackAddRequestAssertionBtn');
+  if (reqBtnPb) reqBtnPb.addEventListener('click', () => openRequestAssertionPicker(true));
+
+  // Modal close handlers
+  const modal = document.getElementById('requestAssertionModal');
+  if (modal) {
+    modal.querySelectorAll('[data-close]').forEach(el => {
+      el.addEventListener('click', closeRequestAssertionModal);
+    });
+    const backdrop = modal.querySelector('.qa-modal-backdrop');
+    if (backdrop) backdrop.addEventListener('click', closeRequestAssertionModal);
+  }
+
+  // Listen for captured network requests during recording
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.action === 'capturedRequest' && state.isRecording) {
+      state.recentRequests.push(message.request);
+      if (state.recentRequests.length > 200) {
+        state.recentRequests.splice(0, state.recentRequests.length - 200);
+      }
+    }
+  });
 }
 
 async function initializeTheme() {
