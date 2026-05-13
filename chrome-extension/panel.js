@@ -28,7 +28,12 @@ const state = {
   folderPlaybackCompleted: false,
   playbackStepResults: {}, // For single recording playback {stepIndex: 'success' | 'error'}
   playbackCompleted: false,
-  searchQuery: '' // Search query for filtering recordings
+  searchQuery: '', // Search query for filtering recordings
+  // Network requests captured since the last recorded user action.
+  // Cleared whenever a new step is appended to the current recording.
+  recentRequests: [],
+  // Pending request-assertion editing (when re-picking a request for an existing step)
+  requestAssertionEditingStepIndex: null
 };
 
 // Initialize
