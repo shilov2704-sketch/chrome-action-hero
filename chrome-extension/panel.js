@@ -703,6 +703,9 @@ function handleRecordedEvent(message) {
       return; // ignore duplicate
     }
     steps.push(step);
+    // Reset the rolling "requests since last step" buffer — only requests that
+    // happen AFTER this newly-recorded step should be offered for the next assertion.
+    state.recentRequests = [];
     renderStepsList();
     updateCodePreview();
   }
