@@ -3428,8 +3428,9 @@ function saveRequestAssertion() {
     state.currentRecording.steps[state.requestAssertionEditingStepIndex] = stepData;
   } else {
     state.currentRecording.steps.push(stepData);
-    // Reset the buffer so the same request isn't re-offered for the next assertion
-    state.recentRequests = [];
+    // Keep the buffer intact so the user can add multiple request assertions
+    // in a row from the same captured window. The buffer will be cleared
+    // automatically when a new non-HEAD request is recorded.
   }
 
   // Persist when in playback view (recording state auto-flushes on stop)
