@@ -37,9 +37,15 @@
           <button id="createFolderBtn" class="btn btn-secondary">
             <span class="icon">📁</span> Создать папку
           </button>
-          <button id="createRecordingBtn" class="btn btn-primary">
-            <span class="icon">➕</span> Создать запись
-          </button>
+          <div class="import-dropdown">
+            <button id="createRecordingBtn" class="btn btn-primary">
+              <span class="icon">➕</span> Создать запись ▾
+            </button>
+            <div class="import-dropdown-menu" id="createDropdownMenu">
+              <button class="import-option" id="createManualOption">✍️ Создать вручную</button>
+              <button class="import-option" id="createFromClipboardOption">📋 Создать из буфера</button>
+            </div>
+          </div>
         </div>
       </div>
 
