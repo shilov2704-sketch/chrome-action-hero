@@ -132,10 +132,22 @@ function initializeEventListeners() {
     if (e.target.value) document.getElementById('suiteNameWeb').value = '';
   });
 
-  // Navigation
-  document.getElementById('createRecordingBtn').addEventListener('click', () => {
+  // Navigation — Create recording dropdown
+  document.getElementById('createRecordingBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.getElementById('createRecordingBtn').disabled) return;
+    const dd = document.getElementById('createDropdownMenu');
+    dd.classList.toggle('show');
+    document.getElementById('importDropdownMenu').classList.remove('show');
+  });
+  document.getElementById('createManualOption').addEventListener('click', () => {
+    document.getElementById('createDropdownMenu').classList.remove('show');
     state.currentView = 'create';
     updateView();
+  });
+  document.getElementById('createFromClipboardOption').addEventListener('click', async () => {
+    document.getElementById('createDropdownMenu').classList.remove('show');
+    openCreateFromClipboardModal();
   });
   
   // Create folder
@@ -190,6 +202,8 @@ function initializeEventListeners() {
   // Close dropdown when clicking outside
   document.addEventListener('click', () => {
     document.getElementById('importDropdownMenu').classList.remove('show');
+    const createDd = document.getElementById('createDropdownMenu');
+    if (createDd) createDd.classList.remove('show');
   });
 
   document.getElementById('importFileInput').addEventListener('change', handleImportFiles);
@@ -497,6 +511,18 @@ function initializeEventListeners() {
     const backdrop = modal.querySelector('.qa-modal-backdrop');
     if (backdrop) backdrop.addEventListener('click', closeRequestAssertionModal);
   }
+
+  // Create-from-clipboard modal handlers
+  const clipModal = document.getElementById('createFromClipboardModal');
+  if (clipModal) {
+    clipModal.querySelectorAll('[data-close]').forEach(el => {
+      el.addEventListener('click', closeCreateFromClipboardModal);
+    });
+    const cbd = clipModal.querySelector('.qa-modal-backdrop');
+    if (cbd) cbd.addEventListener('click', closeCreateFromClipboardModal);
+  }
+  const clipConfirm = document.getElementById('clipboardJsonConfirmBtn');
+  if (clipConfirm) clipConfirm.addEventListener('click', confirmCreateFromClipboard);
 
   // Listen for captured network requests during recording
   chrome.runtime.onMessage.addListener((message) => {
@@ -2524,6 +2550,82 @@ async function handleImportFiles(event) {
   } else {
     alert(`Успешно импортировано: ${importedCount} записей`);
   }
+}
+
+// Create recording from clipboard JSON
+async function openCreateFromClipboardModal() {
+  const modal = document.getElementById('createFromClipboardModal');
+  const input = document.getElementById('clipboardJsonInput');
+  const errEl = document.getElementById('clipboardJsonError');
+  if (!modal || !input) return;
+  input.value = '';
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) input.value = text;
+  } catch (_) { /* clipboard may be unavailable; user can paste manually */ }
+  modal.style.display = 'flex';
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeCreateFromClipboardModal() {
+  const modal = document.getElementById('createFromClipboardModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function showClipboardJsonError(msg) {
+  const errEl = document.getElementById('clipboardJsonError');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+}
+
+async function confirmCreateFromClipboard() {
+  const input = document.getElementById('clipboardJsonInput');
+  const raw = (input && input.value || '').trim();
+  if (!raw) { showClipboardJsonError('Поле пустое — вставьте JSON записи.'); return; }
+
+  let recording;
+  try {
+    recording = JSON.parse(raw);
+  } catch (e) {
+    showClipboardJsonError('Невалидный JSON: ' + e.message);
+    return;
+  }
+
+  if (!recording || typeof recording !== 'object' || Array.isArray(recording)) {
+    showClipboardJsonError('JSON должен быть объектом записи.');
+    return;
+  }
+
+  // Normalize: same as handleImportFiles
+  if (!recording.steps) recording.steps = [];
+  if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+    if (!Array.isArray(recording.steps)) recording.steps = [];
+    recording.steps = [...recording.steps, ...recording.checkSteps];
+    delete recording.checkSteps;
+  }
+  if (!recording.title || typeof recording.title !== 'string' || !Array.isArray(recording.steps)) {
+    showClipboardJsonError('Невалидная запись: требуются поля "title" (строка) и "steps" (массив).');
+    return;
+  }
+
+  recording.id = Date.now();
+  recording.createdAt = recording.createdAt || new Date().toISOString();
+  if (recording.relatedItemID !== undefined) {
+    recording.workItemId = recording.relatedItemID;
+    delete recording.relatedItemID;
+  } else if (recording.WorkItemID !== undefined) {
+    recording.workItemId = recording.WorkItemID;
+    delete recording.WorkItemID;
+  }
+  if (recording.login === undefined) recording.login = '';
+
+  state.recordings.push(recording);
+  await saveRecordings();
+  renderRecordingsList();
+  closeCreateFromClipboardModal();
 }
 
 // Rename current recording

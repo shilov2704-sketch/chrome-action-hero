@@ -1178,6 +1178,12 @@ body {
   display: block;
 }
 
+#createDropdownMenu {
+  left: auto;
+  right: 0;
+  min-width: 200px;
+}
+
 .import-option {
   display: block;
   width: 100%;
