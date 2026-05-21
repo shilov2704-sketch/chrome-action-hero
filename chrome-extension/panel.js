@@ -2974,7 +2974,27 @@ async function handleBulkChangeHost() {
           return event;
         });
       }
-      
+
+      // For requestAssertion steps, swap the host using the same convention
+      // as replaceHostInRecording: navigation host uses "-app.", API host
+      // uses "-api.". If the new host contains "-app." we swap to "-api.",
+      // otherwise we use the new host directly.
+      if (newStep.type === 'requestAssertion' && typeof newStep.url === 'string' && newStep.url) {
+        try {
+          const u = new URL(newStep.url);
+          const newHostUrl = new URL(normalizedHost);
+          let targetHostname = newHostUrl.hostname;
+          if (newHostUrl.hostname.includes('-app.')) {
+            targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
+          }
+          u.protocol = newHostUrl.protocol;
+          u.hostname = targetHostname;
+          u.port = newHostUrl.port;
+          newStep.url = u.toString();
+          changed = true;
+        } catch (_) { /* leave url untouched */ }
+      }
+
       return newStep;
     });
     
