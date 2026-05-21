@@ -13,6 +13,93 @@ let capturedRequestsBuffer = [];
 let capturedRequestsCursor = 0; // index of first un-consumed request during replay
 const CAPTURED_BUFFER_LIMIT = 500;
 
+// ------- Assertion normalization (host-preserving, ID-agnostic) -------
+// Must mirror the logic in panel.js so that captured requests at replay time
+// match the normalized URLs/bodies stored on requestAssertion steps.
+const QA_ID_PLACEHOLDER = '{id}';
+const QA_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QA_NUMERIC_RE = /^\d+$/;
+const QA_ID_KEY_RE = /(^|_)id$|Id$|Ids$|IDs$|Guid$|GUID$|Uuid$|UUID$/;
+
+function qaLooksLikeId(value) {
+  if (value == null) return false;
+  const s = String(value);
+  return QA_NUMERIC_RE.test(s) || QA_UUID_RE.test(s);
+}
+
+function normalizeAssertionUrl(rawUrl) {
+  if (!rawUrl) return '';
+  let origin = '';
+  let pathAndQuery = String(rawUrl);
+  try {
+    const u = new URL(pathAndQuery);
+    origin = u.origin;
+    pathAndQuery = u.pathname + (u.search || '');
+  } catch (_) {}
+  const [pathPart, queryPart = ''] = pathAndQuery.split('?');
+  const newPath = pathPart
+    .split('/')
+    .map(seg => {
+      let decoded = seg;
+      try { decoded = decodeURIComponent(seg); } catch (_) {}
+      return qaLooksLikeId(decoded) ? QA_ID_PLACEHOLDER : seg;
+    })
+    .join('/');
+  if (!queryPart) return origin + newPath;
+  const newPairs = queryPart.split('&').map(pair => {
+    const eq = pair.indexOf('=');
+    if (eq === -1) return pair;
+    const k = pair.slice(0, eq);
+    const v = pair.slice(eq + 1);
+    let decoded = v;
+    try { decoded = decodeURIComponent(v); } catch (_) {}
+    if (QA_ID_KEY_RE.test(k) || qaLooksLikeId(decoded)) {
+      return `${k}=${QA_ID_PLACEHOLDER}`;
+    }
+    return `${k}=${v}`;
+  });
+  return `${origin}${newPath}?${newPairs.join('&')}`;
+}
+
+function qaMaskIdsInJson(node) {
+  if (Array.isArray(node)) return node.map(qaMaskIdsInJson);
+  if (node && typeof node === 'object') {
+    const out = {};
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (QA_ID_KEY_RE.test(k)) {
+        if (Array.isArray(v)) {
+          out[k] = v.map(item => qaLooksLikeId(item) ? QA_ID_PLACEHOLDER : qaMaskIdsInJson(item));
+        } else if (v && typeof v === 'object') {
+          out[k] = qaMaskIdsInJson(v);
+        } else if (qaLooksLikeId(v)) {
+          out[k] = QA_ID_PLACEHOLDER;
+        } else {
+          out[k] = v;
+        }
+      } else {
+        out[k] = qaMaskIdsInJson(v);
+      }
+    }
+    return out;
+  }
+  return node;
+}
+
+function normalizeAssertionBody(rawBody) {
+  if (rawBody == null || rawBody === '') return '';
+  const s = String(rawBody);
+  try {
+    const parsed = JSON.parse(s);
+    const masked = qaMaskIdsInJson(parsed);
+    return JSON.stringify(masked, null, 2);
+  } catch (_) {}
+  return s.replace(
+    /("[^"]*(?:id|Id|IDs|Ids|Guid|GUID|Uuid|UUID)")\s*:\s*("(?:[^"\\]|\\.)*"|\d+)/g,
+    (_m, key) => `${key}:"${QA_ID_PLACEHOLDER}"`
+  );
+}
+
 window.addEventListener('message', (e) => {
   if (!e || e.source !== window) return;
   const data = e.data;
