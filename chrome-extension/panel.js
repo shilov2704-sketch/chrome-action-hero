@@ -2987,7 +2987,9 @@ async function handleBulkChangeHost() {
           const u = new URL(newStep.url);
           const newHostUrl = new URL(normalizedHost);
           let targetHostname = newHostUrl.hostname;
-          if (newHostUrl.hostname.includes('-app.')) {
+          if (/^pr\d+-app\./i.test(newHostUrl.hostname)) {
+            targetHostname = newHostUrl.hostname.replace(/^pr\d+-app\./i, 'dev-api.');
+          } else if (newHostUrl.hostname.includes('-app.')) {
             targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
           }
           u.protocol = newHostUrl.protocol;
