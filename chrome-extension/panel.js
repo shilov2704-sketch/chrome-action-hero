@@ -1906,7 +1906,6 @@ function replaceHostInRecording(newHost) {
     // we fall back to using the new host directly.
     if (newStep.type === 'requestAssertion' && typeof newStep.url === 'string' && newStep.url) {
       try {
-        const u = new URL(newStep.url);
         const newHostUrl = new URL(newHost);
         let targetHostname = newHostUrl.hostname;
         // PR-build hosts like pr16166-app.hubex.ru point to the dev API
@@ -1915,10 +1914,11 @@ function replaceHostInRecording(newHost) {
         } else if (newHostUrl.hostname.includes('-app.')) {
           targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
         }
-        u.protocol = newHostUrl.protocol;
-        u.hostname = targetHostname;
-        u.port = newHostUrl.port;
-        newStep.url = u.toString();
+        const portPart = newHostUrl.port ? `:${newHostUrl.port}` : '';
+        const newOrigin = `${newHostUrl.protocol}//${targetHostname}${portPart}`;
+        // Use raw string replacement on the origin so placeholders like {id}
+        // in the path/query are preserved (URL.toString() percent-encodes them).
+        newStep.url = newStep.url.replace(/^[a-z]+:\/\/[^/]+/i, newOrigin);
       } catch (_) { /* leave url untouched if it's not parseable */ }
     }
 
@@ -2984,7 +2984,6 @@ async function handleBulkChangeHost() {
       // otherwise we use the new host directly.
       if (newStep.type === 'requestAssertion' && typeof newStep.url === 'string' && newStep.url) {
         try {
-          const u = new URL(newStep.url);
           const newHostUrl = new URL(normalizedHost);
           let targetHostname = newHostUrl.hostname;
           if (/^pr\d+-app\./i.test(newHostUrl.hostname)) {
@@ -2992,10 +2991,11 @@ async function handleBulkChangeHost() {
           } else if (newHostUrl.hostname.includes('-app.')) {
             targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
           }
-          u.protocol = newHostUrl.protocol;
-          u.hostname = targetHostname;
-          u.port = newHostUrl.port;
-          newStep.url = u.toString();
+          const portPart = newHostUrl.port ? `:${newHostUrl.port}` : '';
+          const newOrigin = `${newHostUrl.protocol}//${targetHostname}${portPart}`;
+          // Preserve placeholders like {id} in path/query by doing raw
+          // origin replacement instead of URL parsing/serialization.
+          newStep.url = newStep.url.replace(/^[a-z]+:\/\/[^/]+/i, newOrigin);
           changed = true;
         } catch (_) { /* leave url untouched */ }
       }
