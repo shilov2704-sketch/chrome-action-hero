@@ -3396,7 +3396,7 @@ function normalizeAssertionBody(rawBody) {
   try {
     const parsed = JSON.parse(s);
     const masked = qaMaskIdsInJson(parsed);
-    return JSON.stringify(masked);
+    return JSON.stringify(masked, null, 2);
   } catch (_) {}
   // Fallback: best-effort regex for id-like keys in any text body
   return s.replace(
