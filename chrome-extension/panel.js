@@ -132,10 +132,22 @@ function initializeEventListeners() {
     if (e.target.value) document.getElementById('suiteNameWeb').value = '';
   });
 
-  // Navigation
-  document.getElementById('createRecordingBtn').addEventListener('click', () => {
+  // Navigation — Create recording dropdown
+  document.getElementById('createRecordingBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.getElementById('createRecordingBtn').disabled) return;
+    const dd = document.getElementById('createDropdownMenu');
+    dd.classList.toggle('show');
+    document.getElementById('importDropdownMenu').classList.remove('show');
+  });
+  document.getElementById('createManualOption').addEventListener('click', () => {
+    document.getElementById('createDropdownMenu').classList.remove('show');
     state.currentView = 'create';
     updateView();
+  });
+  document.getElementById('createFromClipboardOption').addEventListener('click', async () => {
+    document.getElementById('createDropdownMenu').classList.remove('show');
+    openCreateFromClipboardModal();
   });
   
   // Create folder
