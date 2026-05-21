@@ -3467,9 +3467,10 @@ function renderRequestPickerStep() {
     list.forEach(({ req, idx }) => {
       let path = req.url;
       try { const u = new URL(req.url); path = u.pathname + u.search; } catch (_) {}
+      const normalized = normalizeAssertionUrl(path);
       html += `<div class="qa-req-item" data-req-index="${idx}">
         <span class="qa-req-method ${m}">${m}</span>
-        <span class="qa-req-url">${escapeHtmlText(path)}</span>
+        <span class="qa-req-url">${escapeHtmlText(normalized)}</span>
       </div>`;
     });
     html += `</div>`;
