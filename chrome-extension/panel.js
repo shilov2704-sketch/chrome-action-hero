@@ -3499,9 +3499,9 @@ function renderRequestConfigureStep(req) {
 
   const draft = {
     method: (req.method || 'GET').toUpperCase(),
-    url: req.url || '',
+    url: normalizeAssertionUrl(req.url || ''),
     headers: req.headers || {},
-    body: req.body == null ? '' : String(req.body),
+    body: normalizeAssertionBody(req.body == null ? '' : String(req.body)),
     checkUrl: existing ? (existing.checkUrl !== false) : true,
     checkBody: existing ? !!existing.checkBody : false,
     checkHeaders: existing && Array.isArray(existing.checkHeaders)
