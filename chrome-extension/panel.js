@@ -202,6 +202,8 @@ function initializeEventListeners() {
   // Close dropdown when clicking outside
   document.addEventListener('click', () => {
     document.getElementById('importDropdownMenu').classList.remove('show');
+    const createDd = document.getElementById('createDropdownMenu');
+    if (createDd) createDd.classList.remove('show');
   });
 
   document.getElementById('importFileInput').addEventListener('change', handleImportFiles);
