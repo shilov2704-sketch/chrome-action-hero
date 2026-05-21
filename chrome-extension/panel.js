@@ -1898,7 +1898,27 @@ function replaceHostInRecording(newHost) {
         return event;
       });
     }
-    
+
+    // For requestAssertion steps, swap the assertion URL host to match the
+    // new environment. Hubex convention: navigation host uses "-app.", API
+    // host uses "-api.". We derive the matching API host from the new host
+    // by swapping "-app." → "-api.". If the new host doesn't contain "-app."
+    // we fall back to using the new host directly.
+    if (newStep.type === 'requestAssertion' && typeof newStep.url === 'string' && newStep.url) {
+      try {
+        const u = new URL(newStep.url);
+        const newHostUrl = new URL(newHost);
+        let targetHostname = newHostUrl.hostname;
+        if (newHostUrl.hostname.includes('-app.')) {
+          targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
+        }
+        u.protocol = newHostUrl.protocol;
+        u.hostname = targetHostname;
+        u.port = newHostUrl.port;
+        newStep.url = u.toString();
+      } catch (_) { /* leave url untouched if it's not parseable */ }
+    }
+
     return newStep;
   });
   
