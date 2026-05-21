@@ -1898,7 +1898,27 @@ function replaceHostInRecording(newHost) {
         return event;
       });
     }
-    
+
+    // For requestAssertion steps, swap the assertion URL host to match the
+    // new environment. Hubex convention: navigation host uses "-app.", API
+    // host uses "-api.". We derive the matching API host from the new host
+    // by swapping "-app." → "-api.". If the new host doesn't contain "-app."
+    // we fall back to using the new host directly.
+    if (newStep.type === 'requestAssertion' && typeof newStep.url === 'string' && newStep.url) {
+      try {
+        const u = new URL(newStep.url);
+        const newHostUrl = new URL(newHost);
+        let targetHostname = newHostUrl.hostname;
+        if (newHostUrl.hostname.includes('-app.')) {
+          targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
+        }
+        u.protocol = newHostUrl.protocol;
+        u.hostname = targetHostname;
+        u.port = newHostUrl.port;
+        newStep.url = u.toString();
+      } catch (_) { /* leave url untouched if it's not parseable */ }
+    }
+
     return newStep;
   });
   
@@ -3333,21 +3353,22 @@ function qaLooksLikeId(value) {
 
 function normalizeAssertionUrl(rawUrl) {
   if (!rawUrl) return '';
+  let origin = '';
   let pathAndQuery = String(rawUrl);
-  // Drop scheme + host if present
+  // Preserve scheme + host if present so checks remain tied to an env host.
   try {
-    const u = new URL(pathAndQuery, 'http://_qa_base_/');
+    const u = new URL(pathAndQuery);
+    origin = u.origin;
     pathAndQuery = u.pathname + (u.search || '');
   } catch (_) {
-    // best-effort: strip leading scheme://host/
-    pathAndQuery = pathAndQuery.replace(/^[a-z]+:\/\/[^/]+/i, '');
+    // Relative URL — keep as is, no origin to preserve.
   }
   const [pathPart, queryPart = ''] = pathAndQuery.split('?');
   const newPath = pathPart
     .split('/')
     .map(seg => qaLooksLikeId(decodeURIComponent(seg)) ? QA_ID_PLACEHOLDER : seg)
     .join('/');
-  if (!queryPart) return newPath;
+  if (!queryPart) return origin + newPath;
   // Normalize query params: mask id-like keys and id-like values
   const newPairs = queryPart.split('&').map(pair => {
     const eq = pair.indexOf('=');
@@ -3361,7 +3382,7 @@ function normalizeAssertionUrl(rawUrl) {
     }
     return `${k}=${v}`;
   });
-  return `${newPath}?${newPairs.join('&')}`;
+  return `${origin}${newPath}?${newPairs.join('&')}`;
 }
 
 function qaMaskIdsInJson(node) {
