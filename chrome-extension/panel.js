@@ -3314,7 +3314,95 @@ function makeRequestSummary(req) {
   if (!req) return '';
   let path = req.url || '';
   try { const u = new URL(req.url); path = u.pathname + u.search; } catch (_) {}
-  return `${req.method} ${path}`;
+  return `${req.method} ${normalizeAssertionUrl(path)}`;
+}
+
+// ------- Assertion normalization (host-agnostic, ID-agnostic) -------
+// Strip host, mask numeric IDs and UUIDs in path/query, and mask ID-like
+// fields in JSON body so checks survive across envs and entity IDs.
+const QA_ID_PLACEHOLDER = '{id}';
+const QA_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QA_NUMERIC_RE = /^\d+$/;
+const QA_ID_KEY_RE = /(^|_)id$|Id$|Ids$|IDs$|Guid$|GUID$|Uuid$|UUID$/;
+
+function qaLooksLikeId(value) {
+  if (value == null) return false;
+  const s = String(value);
+  return QA_NUMERIC_RE.test(s) || QA_UUID_RE.test(s);
+}
+
+function normalizeAssertionUrl(rawUrl) {
+  if (!rawUrl) return '';
+  let pathAndQuery = String(rawUrl);
+  // Drop scheme + host if present
+  try {
+    const u = new URL(pathAndQuery, 'http://_qa_base_/');
+    pathAndQuery = u.pathname + (u.search || '');
+  } catch (_) {
+    // best-effort: strip leading scheme://host/
+    pathAndQuery = pathAndQuery.replace(/^[a-z]+:\/\/[^/]+/i, '');
+  }
+  const [pathPart, queryPart = ''] = pathAndQuery.split('?');
+  const newPath = pathPart
+    .split('/')
+    .map(seg => qaLooksLikeId(decodeURIComponent(seg)) ? QA_ID_PLACEHOLDER : seg)
+    .join('/');
+  if (!queryPart) return newPath;
+  // Normalize query params: mask id-like keys and id-like values
+  const newPairs = queryPart.split('&').map(pair => {
+    const eq = pair.indexOf('=');
+    if (eq === -1) return pair;
+    const k = pair.slice(0, eq);
+    const v = pair.slice(eq + 1);
+    let decoded = v;
+    try { decoded = decodeURIComponent(v); } catch (_) {}
+    if (QA_ID_KEY_RE.test(k) || qaLooksLikeId(decoded)) {
+      return `${k}=${QA_ID_PLACEHOLDER}`;
+    }
+    return `${k}=${v}`;
+  });
+  return `${newPath}?${newPairs.join('&')}`;
+}
+
+function qaMaskIdsInJson(node) {
+  if (Array.isArray(node)) return node.map(qaMaskIdsInJson);
+  if (node && typeof node === 'object') {
+    const out = {};
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (QA_ID_KEY_RE.test(k)) {
+        if (Array.isArray(v)) {
+          out[k] = v.map(item => qaLooksLikeId(item) ? QA_ID_PLACEHOLDER : qaMaskIdsInJson(item));
+        } else if (v && typeof v === 'object') {
+          out[k] = qaMaskIdsInJson(v);
+        } else if (qaLooksLikeId(v)) {
+          out[k] = QA_ID_PLACEHOLDER;
+        } else {
+          out[k] = v;
+        }
+      } else {
+        out[k] = qaMaskIdsInJson(v);
+      }
+    }
+    return out;
+  }
+  return node;
+}
+
+function normalizeAssertionBody(rawBody) {
+  if (rawBody == null || rawBody === '') return '';
+  const s = String(rawBody);
+  // Try JSON path
+  try {
+    const parsed = JSON.parse(s);
+    const masked = qaMaskIdsInJson(parsed);
+    return JSON.stringify(masked, null, 2);
+  } catch (_) {}
+  // Fallback: best-effort regex for id-like keys in any text body
+  return s.replace(
+    /("[^"]*(?:id|Id|IDs|Ids|Guid|GUID|Uuid|UUID)")\s*:\s*("(?:[^"\\]|\\.)*"|\d+)/g,
+    (_m, key) => `${key}:"${QA_ID_PLACEHOLDER}"`
+  );
 }
 
 function openRequestAssertionPicker(isPlayback, editingStepIndex = null) {
@@ -3379,9 +3467,10 @@ function renderRequestPickerStep() {
     list.forEach(({ req, idx }) => {
       let path = req.url;
       try { const u = new URL(req.url); path = u.pathname + u.search; } catch (_) {}
+      const normalized = normalizeAssertionUrl(path);
       html += `<div class="qa-req-item" data-req-index="${idx}">
         <span class="qa-req-method ${m}">${m}</span>
-        <span class="qa-req-url">${escapeHtmlText(path)}</span>
+        <span class="qa-req-url">${escapeHtmlText(normalized)}</span>
       </div>`;
     });
     html += `</div>`;
@@ -3411,9 +3500,9 @@ function renderRequestConfigureStep(req) {
 
   const draft = {
     method: (req.method || 'GET').toUpperCase(),
-    url: req.url || '',
+    url: normalizeAssertionUrl(req.url || ''),
     headers: req.headers || {},
-    body: req.body == null ? '' : String(req.body),
+    body: normalizeAssertionBody(req.body == null ? '' : String(req.body)),
     checkUrl: existing ? (existing.checkUrl !== false) : true,
     checkBody: existing ? !!existing.checkBody : false,
     checkHeaders: existing && Array.isArray(existing.checkHeaders)
