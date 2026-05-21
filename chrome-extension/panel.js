@@ -2552,6 +2552,82 @@ async function handleImportFiles(event) {
   }
 }
 
+// Create recording from clipboard JSON
+async function openCreateFromClipboardModal() {
+  const modal = document.getElementById('createFromClipboardModal');
+  const input = document.getElementById('clipboardJsonInput');
+  const errEl = document.getElementById('clipboardJsonError');
+  if (!modal || !input) return;
+  input.value = '';
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) input.value = text;
+  } catch (_) { /* clipboard may be unavailable; user can paste manually */ }
+  modal.style.display = 'flex';
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeCreateFromClipboardModal() {
+  const modal = document.getElementById('createFromClipboardModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function showClipboardJsonError(msg) {
+  const errEl = document.getElementById('clipboardJsonError');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+}
+
+async function confirmCreateFromClipboard() {
+  const input = document.getElementById('clipboardJsonInput');
+  const raw = (input && input.value || '').trim();
+  if (!raw) { showClipboardJsonError('Поле пустое — вставьте JSON записи.'); return; }
+
+  let recording;
+  try {
+    recording = JSON.parse(raw);
+  } catch (e) {
+    showClipboardJsonError('Невалидный JSON: ' + e.message);
+    return;
+  }
+
+  if (!recording || typeof recording !== 'object' || Array.isArray(recording)) {
+    showClipboardJsonError('JSON должен быть объектом записи.');
+    return;
+  }
+
+  // Normalize: same as handleImportFiles
+  if (!recording.steps) recording.steps = [];
+  if (recording.checkSteps && Array.isArray(recording.checkSteps)) {
+    if (!Array.isArray(recording.steps)) recording.steps = [];
+    recording.steps = [...recording.steps, ...recording.checkSteps];
+    delete recording.checkSteps;
+  }
+  if (!recording.title || typeof recording.title !== 'string' || !Array.isArray(recording.steps)) {
+    showClipboardJsonError('Невалидная запись: требуются поля "title" (строка) и "steps" (массив).');
+    return;
+  }
+
+  recording.id = Date.now();
+  recording.createdAt = recording.createdAt || new Date().toISOString();
+  if (recording.relatedItemID !== undefined) {
+    recording.workItemId = recording.relatedItemID;
+    delete recording.relatedItemID;
+  } else if (recording.WorkItemID !== undefined) {
+    recording.workItemId = recording.WorkItemID;
+    delete recording.WorkItemID;
+  }
+  if (recording.login === undefined) recording.login = '';
+
+  state.recordings.push(recording);
+  await saveRecordings();
+  renderRecordingsList();
+  closeCreateFromClipboardModal();
+}
+
 // Rename current recording
 async function renameCurrentRecording() {
   if (!state.currentRecording) return;
