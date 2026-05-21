@@ -3333,21 +3333,22 @@ function qaLooksLikeId(value) {
 
 function normalizeAssertionUrl(rawUrl) {
   if (!rawUrl) return '';
+  let origin = '';
   let pathAndQuery = String(rawUrl);
-  // Drop scheme + host if present
+  // Preserve scheme + host if present so checks remain tied to an env host.
   try {
-    const u = new URL(pathAndQuery, 'http://_qa_base_/');
+    const u = new URL(pathAndQuery);
+    origin = u.origin;
     pathAndQuery = u.pathname + (u.search || '');
   } catch (_) {
-    // best-effort: strip leading scheme://host/
-    pathAndQuery = pathAndQuery.replace(/^[a-z]+:\/\/[^/]+/i, '');
+    // Relative URL — keep as is, no origin to preserve.
   }
   const [pathPart, queryPart = ''] = pathAndQuery.split('?');
   const newPath = pathPart
     .split('/')
     .map(seg => qaLooksLikeId(decodeURIComponent(seg)) ? QA_ID_PLACEHOLDER : seg)
     .join('/');
-  if (!queryPart) return newPath;
+  if (!queryPart) return origin + newPath;
   // Normalize query params: mask id-like keys and id-like values
   const newPairs = queryPart.split('&').map(pair => {
     const eq = pair.indexOf('=');
@@ -3361,7 +3362,7 @@ function normalizeAssertionUrl(rawUrl) {
     }
     return `${k}=${v}`;
   });
-  return `${newPath}?${newPairs.join('&')}`;
+  return `${origin}${newPath}?${newPairs.join('&')}`;
 }
 
 function qaMaskIdsInJson(node) {
