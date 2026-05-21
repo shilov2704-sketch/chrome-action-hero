@@ -512,6 +512,18 @@ function initializeEventListeners() {
     if (backdrop) backdrop.addEventListener('click', closeRequestAssertionModal);
   }
 
+  // Create-from-clipboard modal handlers
+  const clipModal = document.getElementById('createFromClipboardModal');
+  if (clipModal) {
+    clipModal.querySelectorAll('[data-close]').forEach(el => {
+      el.addEventListener('click', closeCreateFromClipboardModal);
+    });
+    const cbd = clipModal.querySelector('.qa-modal-backdrop');
+    if (cbd) cbd.addEventListener('click', closeCreateFromClipboardModal);
+  }
+  const clipConfirm = document.getElementById('clipboardJsonConfirmBtn');
+  if (clipConfirm) clipConfirm.addEventListener('click', confirmCreateFromClipboard);
+
   // Listen for captured network requests during recording
   chrome.runtime.onMessage.addListener((message) => {
     if (message && message.action === 'capturedRequest' && state.isRecording) {
