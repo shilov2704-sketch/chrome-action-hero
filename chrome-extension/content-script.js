@@ -2694,16 +2694,17 @@ async function executeStep(step, settings) {
       const matchesRequest = (req) => {
         if (!req) return false;
         if (expectedMethod && String(req.method || '').toUpperCase() !== expectedMethod) return false;
-        if (checkUrl && String(req.url || '') !== expectedUrl) return false;
+        if (checkUrl && normalizeAssertionUrl(String(req.url || '')) !== expectedUrl) return false;
         return true;
       };
 
       const validateRequest = (req) => {
         // Returns null on success, otherwise an error message.
         if (checkBody) {
-          const actual = req.body == null ? '' : String(req.body);
-          if (actual !== expectedBody) {
-            return `Request body mismatch.\nExpected: ${expectedBody}\nActual: ${actual}`;
+          const actual = normalizeAssertionBody(req.body == null ? '' : String(req.body));
+          const expectedNormalized = normalizeAssertionBody(expectedBody);
+          if (actual !== expectedNormalized) {
+            return `Request body mismatch.\nExpected: ${expectedNormalized}\nActual: ${actual}`;
           }
         }
         if (headerChecks.length > 0) {
