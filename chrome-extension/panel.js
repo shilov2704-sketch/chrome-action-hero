@@ -1909,7 +1909,10 @@ function replaceHostInRecording(newHost) {
         const u = new URL(newStep.url);
         const newHostUrl = new URL(newHost);
         let targetHostname = newHostUrl.hostname;
-        if (newHostUrl.hostname.includes('-app.')) {
+        // PR-build hosts like pr16166-app.hubex.ru point to the dev API
+        if (/^pr\d+-app\./i.test(newHostUrl.hostname)) {
+          targetHostname = newHostUrl.hostname.replace(/^pr\d+-app\./i, 'dev-api.');
+        } else if (newHostUrl.hostname.includes('-app.')) {
           targetHostname = newHostUrl.hostname.replace('-app.', '-api.');
         }
         u.protocol = newHostUrl.protocol;
