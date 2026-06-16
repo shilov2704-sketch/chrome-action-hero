@@ -2402,6 +2402,7 @@ function deleteStep(index) {
   
   if (confirm('Удалить этот шаг?')) {
     state.currentRecording.steps.splice(index, 1);
+    state.selectedStepIndices = [];
     renderStepsList();
     updateCodePreview();
     
@@ -2414,6 +2415,112 @@ function deleteStep(index) {
       saveRecordings();
     }
   }
+}
+
+// ===== Bulk step selection / deletion =====
+function attachStepBulkCheckboxHandlers(container) {
+  container.querySelectorAll('.step-bulk-checkbox').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(e.target.dataset.index);
+      if (e.target.checked) {
+        if (!state.selectedStepIndices.includes(idx)) state.selectedStepIndices.push(idx);
+      } else {
+        state.selectedStepIndices = state.selectedStepIndices.filter(i => i !== idx);
+      }
+      updateDeleteSelectedStepsButton();
+    });
+  });
+}
+
+function updateDeleteSelectedStepsButton() {
+  const count = state.selectedStepIndices.length;
+  ['deleteSelectedStepsBtn', 'playbackDeleteSelectedStepsBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = count > 0 ? '' : 'none';
+  });
+  const c1 = document.getElementById('deleteSelectedStepsCount');
+  const c2 = document.getElementById('playbackDeleteSelectedStepsCount');
+  if (c1) c1.textContent = String(count);
+  if (c2) c2.textContent = String(count);
+}
+
+function deleteSelectedSteps() {
+  if (!state.currentRecording) return;
+  const indices = [...state.selectedStepIndices];
+  if (indices.length === 0) return;
+  if (!confirm(`Удалить выбранные шаги (${indices.length})?`)) return;
+  // Remove from highest to lowest index
+  indices.sort((a, b) => b - a);
+  for (const idx of indices) {
+    state.currentRecording.steps.splice(idx, 1);
+  }
+  state.selectedStepIndices = [];
+  state.selectedStep = null;
+  if (state.currentView === 'playback') renderPlaybackView();
+  else renderStepsList();
+  updateCodePreview();
+  if (!state.isRecording) saveRecordings();
+}
+
+// ===== CI upload =====
+const CI_UPLOAD_URL = 'https://dev-n-ai.hubex.ru/form/d0243292-4ca3-45f7-b787-d43b9fb0e8c2';
+
+function sanitizeFileName(name) {
+  return String(name || 'recording').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'recording';
+}
+
+async function uploadRecordingsToCi(recordings) {
+  if (!recordings || recordings.length === 0) {
+    alert('Нет записей для загрузки в CI');
+    return;
+  }
+  const formData = new FormData();
+  recordings.forEach((rec, i) => {
+    const data = prepareRecordingForExport(rec);
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    formData.append(`field-${i}`, blob, `${sanitizeFileName(rec.title)}.json`);
+  });
+  try {
+    const res = await fetch(CI_UPLOAD_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Accept': '*/*' },
+      body: formData
+    });
+    let parsed = null;
+    try { parsed = await res.json(); } catch (_) {}
+    if (res.ok && (!parsed || parsed.status === 200 || parsed.status === undefined)) {
+      alert(`Загружено в CI: ${recordings.length} записей`);
+    } else {
+      alert(`Ошибка загрузки в CI: ${res.status} ${res.statusText}${parsed ? ' — ' + JSON.stringify(parsed) : ''}`);
+    }
+  } catch (err) {
+    alert(`Ошибка загрузки в CI: ${err.message || err}`);
+  }
+}
+
+async function handleUploadCurrentToCi() {
+  if (!state.currentRecording) return;
+  await uploadRecordingsToCi([state.currentRecording]);
+}
+
+async function handleBulkUploadToCi() {
+  if (state.selectedItems.length === 0) return;
+  const recordingIds = new Set();
+  for (const item of state.selectedItems) {
+    if (item.type === 'recording') {
+      recordingIds.add(item.id);
+    } else if (item.type === 'folder') {
+      state.recordings
+        .filter(r => r.folderId === item.id)
+        .forEach(r => recordingIds.add(r.id));
+    }
+  }
+  const recordings = state.recordings.filter(r => recordingIds.has(r.id));
+  await uploadRecordingsToCi(recordings);
 }
 
 function updateStepStatus(stepIndex, status, error) {
