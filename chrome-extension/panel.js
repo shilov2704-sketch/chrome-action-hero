@@ -1755,6 +1755,7 @@ function renderPlaybackView() {
     return `
       <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}" draggable="true">
         <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
+        <input type="checkbox" class="step-bulk-checkbox" data-index="${index}" ${state.selectedStepIndices.includes(index) ? 'checked' : ''} title="Выбрать шаг">
         <div class="step-number">${index + 1}</div>
         <div class="step-type">${step.type}</div>
         <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1767,7 +1768,7 @@ function renderPlaybackView() {
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
     item.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-step-btn')) {
+      if (!e.target.classList.contains('delete-step-btn') && !e.target.classList.contains('step-bulk-checkbox')) {
         const index = parseInt(item.dataset.index);
         state.selectedStep = index;
         
@@ -1791,6 +1792,9 @@ function renderPlaybackView() {
       }
     });
   });
+
+  attachStepBulkCheckboxHandlers(container);
+  updateDeleteSelectedStepsButton();
   
   // Add delete handlers
   container.querySelectorAll('.delete-step-btn').forEach(btn => {
