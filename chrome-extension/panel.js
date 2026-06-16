@@ -217,6 +217,14 @@ function initializeEventListeners() {
   document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
   document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
   document.getElementById('bulkSelectAllBtn').addEventListener('click', selectAll);
+  const bulkCiBtn = document.getElementById('bulkUploadCiBtn');
+  if (bulkCiBtn) bulkCiBtn.addEventListener('click', handleBulkUploadToCi);
+  const uploadCiBtn = document.getElementById('uploadCiBtn');
+  if (uploadCiBtn) uploadCiBtn.addEventListener('click', handleUploadCurrentToCi);
+  const delSelStepsBtn = document.getElementById('deleteSelectedStepsBtn');
+  if (delSelStepsBtn) delSelStepsBtn.addEventListener('click', deleteSelectedSteps);
+  const delSelStepsBtn2 = document.getElementById('playbackDeleteSelectedStepsBtn');
+  if (delSelStepsBtn2) delSelStepsBtn2.addEventListener('click', deleteSelectedSteps);
   
   // Reset results button
   document.getElementById('resetResultsBtn').addEventListener('click', resetFolderResults);
