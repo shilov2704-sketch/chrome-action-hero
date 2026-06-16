@@ -33,7 +33,9 @@ const state = {
   // Cleared whenever a new step is appended to the current recording.
   recentRequests: [],
   // Pending request-assertion editing (when re-picking a request for an existing step)
-  requestAssertionEditingStepIndex: null
+  requestAssertionEditingStepIndex: null,
+  // Indices of steps selected via checkbox in current recording (for bulk delete)
+  selectedStepIndices: []
 };
 
 // Initialize
@@ -215,6 +217,14 @@ function initializeEventListeners() {
   document.getElementById('bulkDeleteBtn').addEventListener('click', handleBulkDelete);
   document.getElementById('bulkCancelBtn').addEventListener('click', clearSelection);
   document.getElementById('bulkSelectAllBtn').addEventListener('click', selectAll);
+  const bulkCiBtn = document.getElementById('bulkUploadCiBtn');
+  if (bulkCiBtn) bulkCiBtn.addEventListener('click', handleBulkUploadToCi);
+  const uploadCiBtn = document.getElementById('uploadCiBtn');
+  if (uploadCiBtn) uploadCiBtn.addEventListener('click', handleUploadCurrentToCi);
+  const delSelStepsBtn = document.getElementById('deleteSelectedStepsBtn');
+  if (delSelStepsBtn) delSelStepsBtn.addEventListener('click', deleteSelectedSteps);
+  const delSelStepsBtn2 = document.getElementById('playbackDeleteSelectedStepsBtn');
+  if (delSelStepsBtn2) delSelStepsBtn2.addEventListener('click', deleteSelectedSteps);
   
   // Reset results button
   document.getElementById('resetResultsBtn').addEventListener('click', resetFolderResults);
@@ -1239,6 +1249,7 @@ function renderStepsList() {
   container.innerHTML = state.currentRecording.steps.map((step, index) => `
     <div class="step-item" data-index="${index}" draggable="true">
       <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
+      <input type="checkbox" class="step-bulk-checkbox" data-index="${index}" ${state.selectedStepIndices.includes(index) ? 'checked' : ''} title="Выбрать шаг">
       <div class="step-number">${index + 1}</div>
       <div class="step-type">${step.type}</div>
       <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1249,12 +1260,15 @@ function renderStepsList() {
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
     item.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-step-btn')) {
+      if (!e.target.classList.contains('delete-step-btn') && !e.target.classList.contains('step-bulk-checkbox')) {
         const index = parseInt(item.dataset.index);
         selectStep(index);
       }
     });
   });
+
+  attachStepBulkCheckboxHandlers(container);
+  updateDeleteSelectedStepsButton();
   
   // Add delete handlers
   container.querySelectorAll('.delete-step-btn').forEach(btn => {
@@ -1741,6 +1755,7 @@ function renderPlaybackView() {
     return `
       <div class="step-item ${stepResultClass}" data-index="${index}" data-step-id="step-${index}" draggable="true">
         <span class="step-drag-handle" title="Перетащите для изменения порядка">⋮⋮</span>
+        <input type="checkbox" class="step-bulk-checkbox" data-index="${index}" ${state.selectedStepIndices.includes(index) ? 'checked' : ''} title="Выбрать шаг">
         <div class="step-number">${index + 1}</div>
         <div class="step-type">${step.type}</div>
         <div class="step-icon">${getStepIcon(step.type)}</div>
@@ -1753,7 +1768,7 @@ function renderPlaybackView() {
   // Add click handlers
   container.querySelectorAll('.step-item').forEach(item => {
     item.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-step-btn')) {
+      if (!e.target.classList.contains('delete-step-btn') && !e.target.classList.contains('step-bulk-checkbox')) {
         const index = parseInt(item.dataset.index);
         state.selectedStep = index;
         
@@ -1777,6 +1792,9 @@ function renderPlaybackView() {
       }
     });
   });
+
+  attachStepBulkCheckboxHandlers(container);
+  updateDeleteSelectedStepsButton();
   
   // Add delete handlers
   container.querySelectorAll('.delete-step-btn').forEach(btn => {
@@ -2297,6 +2315,7 @@ async function openRecording(id) {
   state.playbackStepResults = {};
   state.playbackCompleted = false;
   state.selectedStep = null;
+  state.selectedStepIndices = [];
   state.currentView = 'playback';
   updateView();
   renderPlaybackView();
@@ -2384,6 +2403,7 @@ function deleteStep(index) {
   
   if (confirm('Удалить этот шаг?')) {
     state.currentRecording.steps.splice(index, 1);
+    state.selectedStepIndices = [];
     renderStepsList();
     updateCodePreview();
     
@@ -2396,6 +2416,112 @@ function deleteStep(index) {
       saveRecordings();
     }
   }
+}
+
+// ===== Bulk step selection / deletion =====
+function attachStepBulkCheckboxHandlers(container) {
+  container.querySelectorAll('.step-bulk-checkbox').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(e.target.dataset.index);
+      if (e.target.checked) {
+        if (!state.selectedStepIndices.includes(idx)) state.selectedStepIndices.push(idx);
+      } else {
+        state.selectedStepIndices = state.selectedStepIndices.filter(i => i !== idx);
+      }
+      updateDeleteSelectedStepsButton();
+    });
+  });
+}
+
+function updateDeleteSelectedStepsButton() {
+  const count = state.selectedStepIndices.length;
+  ['deleteSelectedStepsBtn', 'playbackDeleteSelectedStepsBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = count > 0 ? '' : 'none';
+  });
+  const c1 = document.getElementById('deleteSelectedStepsCount');
+  const c2 = document.getElementById('playbackDeleteSelectedStepsCount');
+  if (c1) c1.textContent = String(count);
+  if (c2) c2.textContent = String(count);
+}
+
+function deleteSelectedSteps() {
+  if (!state.currentRecording) return;
+  const indices = [...state.selectedStepIndices];
+  if (indices.length === 0) return;
+  if (!confirm(`Удалить выбранные шаги (${indices.length})?`)) return;
+  // Remove from highest to lowest index
+  indices.sort((a, b) => b - a);
+  for (const idx of indices) {
+    state.currentRecording.steps.splice(idx, 1);
+  }
+  state.selectedStepIndices = [];
+  state.selectedStep = null;
+  if (state.currentView === 'playback') renderPlaybackView();
+  else renderStepsList();
+  updateCodePreview();
+  if (!state.isRecording) saveRecordings();
+}
+
+// ===== CI upload =====
+const CI_UPLOAD_URL = 'https://dev-n-ai.hubex.ru/form/d0243292-4ca3-45f7-b787-d43b9fb0e8c2';
+
+function sanitizeFileName(name) {
+  return String(name || 'recording').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'recording';
+}
+
+async function uploadRecordingsToCi(recordings) {
+  if (!recordings || recordings.length === 0) {
+    alert('Нет записей для загрузки в CI');
+    return;
+  }
+  const formData = new FormData();
+  recordings.forEach((rec, i) => {
+    const data = prepareRecordingForExport(rec);
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    formData.append(`field-${i}`, blob, `${sanitizeFileName(rec.title)}.json`);
+  });
+  try {
+    const res = await fetch(CI_UPLOAD_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Accept': '*/*' },
+      body: formData
+    });
+    let parsed = null;
+    try { parsed = await res.json(); } catch (_) {}
+    if (res.ok && (!parsed || parsed.status === 200 || parsed.status === undefined)) {
+      alert(`Загружено в CI: ${recordings.length} записей`);
+    } else {
+      alert(`Ошибка загрузки в CI: ${res.status} ${res.statusText}${parsed ? ' — ' + JSON.stringify(parsed) : ''}`);
+    }
+  } catch (err) {
+    alert(`Ошибка загрузки в CI: ${err.message || err}`);
+  }
+}
+
+async function handleUploadCurrentToCi() {
+  if (!state.currentRecording) return;
+  await uploadRecordingsToCi([state.currentRecording]);
+}
+
+async function handleBulkUploadToCi() {
+  if (state.selectedItems.length === 0) return;
+  const recordingIds = new Set();
+  for (const item of state.selectedItems) {
+    if (item.type === 'recording') {
+      recordingIds.add(item.id);
+    } else if (item.type === 'folder') {
+      state.recordings
+        .filter(r => r.folderId === item.id)
+        .forEach(r => recordingIds.add(r.id));
+    }
+  }
+  const recordings = state.recordings.filter(r => recordingIds.has(r.id));
+  await uploadRecordingsToCi(recordings);
 }
 
 function updateStepStatus(stepIndex, status, error) {

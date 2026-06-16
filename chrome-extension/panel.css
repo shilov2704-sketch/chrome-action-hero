@@ -1667,3 +1667,12 @@ body {
   font-size: 12px;
 }
 .qa-step-req-checks li { font-family: 'Roboto Mono', monospace; }
+
+/* Step bulk-select checkbox */
+.step-bulk-checkbox {
+  margin: 0 6px 0 2px;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}

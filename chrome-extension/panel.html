@@ -61,6 +61,9 @@
         <button class="btn btn-secondary" id="bulkChangeHostBtn">
           <span class="icon">🔗</span> Сменить хост
         </button>
+        <button class="btn btn-secondary" id="bulkUploadCiBtn">
+          <span class="icon">🚀</span> Загрузить в CI
+        </button>
         <button class="btn btn-danger" id="bulkDeleteBtn">
           <span class="icon">🗑</span> Удалить
         </button>
@@ -259,6 +262,9 @@
             <button id="addRequestAssertionBtn" class="btn btn-small">
               <span class="icon">🌐</span> Проверка запроса
             </button>
+            <button id="deleteSelectedStepsBtn" class="btn btn-danger btn-small" style="display:none;">
+              <span class="icon">🗑</span> Удалить выбранные (<span id="deleteSelectedStepsCount">0</span>)
+            </button>
           </div>
           <div id="stepsList" class="steps-list"></div>
         </div>
@@ -330,6 +336,9 @@
           <button id="exportJsonBtn" class="btn btn-secondary">
             <span class="icon">💾</span> Экспорт JSON
           </button>
+          <button id="uploadCiBtn" class="btn btn-secondary">
+            <span class="icon">🚀</span> Загрузить в CI
+          </button>
           <button id="deleteRecordingBtn" class="btn btn-danger">
             <span class="icon">🗑</span> Удалить
           </button>
@@ -345,6 +354,9 @@
             </button>
             <button id="playbackAddRequestAssertionBtn" class="btn btn-small">
               <span class="icon">🌐</span> Проверка запроса
+            </button>
+            <button id="playbackDeleteSelectedStepsBtn" class="btn btn-danger btn-small" style="display:none;">
+              <span class="icon">🗑</span> Удалить выбранные (<span id="playbackDeleteSelectedStepsCount">0</span>)
             </button>
           </div>
           <div id="playbackStepsList" class="steps-list"></div>
