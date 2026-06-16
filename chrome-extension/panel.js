@@ -2482,7 +2482,7 @@ async function uploadRecordingsToCi(recordings) {
     const data = prepareRecordingForExport(rec);
     const jsonStr = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
-    formData.append(`field-${i}`, blob, `${sanitizeFileName(rec.title)}.json`);
+    formData.append('field-0', blob, `${sanitizeFileName(rec.title)}.json`);
   });
   try {
     const res = await fetch(CI_UPLOAD_URL, {
