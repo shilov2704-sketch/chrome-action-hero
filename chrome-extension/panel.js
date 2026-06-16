@@ -2315,6 +2315,7 @@ async function openRecording(id) {
   state.playbackStepResults = {};
   state.playbackCompleted = false;
   state.selectedStep = null;
+  state.selectedStepIndices = [];
   state.currentView = 'playback';
   updateView();
   renderPlaybackView();
