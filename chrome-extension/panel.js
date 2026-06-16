@@ -33,7 +33,9 @@ const state = {
   // Cleared whenever a new step is appended to the current recording.
   recentRequests: [],
   // Pending request-assertion editing (when re-picking a request for an existing step)
-  requestAssertionEditingStepIndex: null
+  requestAssertionEditingStepIndex: null,
+  // Indices of steps selected via checkbox in current recording (for bulk delete)
+  selectedStepIndices: []
 };
 
 // Initialize
