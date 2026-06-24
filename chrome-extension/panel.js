@@ -221,6 +221,8 @@ function initializeEventListeners() {
   if (bulkCiBtn) bulkCiBtn.addEventListener('click', handleBulkUploadToCi);
   const uploadCiBtn = document.getElementById('uploadCiBtn');
   if (uploadCiBtn) uploadCiBtn.addEventListener('click', handleUploadCurrentToCi);
+  const convertCodeBtn = document.getElementById('convertToCodeBtn');
+  if (convertCodeBtn) convertCodeBtn.addEventListener('click', handleConvertCurrentToCode);
   const delSelStepsBtn = document.getElementById('deleteSelectedStepsBtn');
   if (delSelStepsBtn) delSelStepsBtn.addEventListener('click', deleteSelectedSteps);
   const delSelStepsBtn2 = document.getElementById('playbackDeleteSelectedStepsBtn');
@@ -1032,6 +1034,7 @@ function renderRecordingsList() {
           <div class="recording-card-title">${recording.title}</div>
           <div class="recording-card-actions">
             ${state.currentFolder ? `<button class="move-to-root-btn" data-id="${recording.id}" title="Переместить в общий список">📤</button>` : `<button class="move-to-folder-btn" data-id="${recording.id}" title="Переместить в папку">📁</button>`}
+            <button class="convert-to-code-btn" data-id="${recording.id}" title="Преобразовать в Code (Python + Playwright)">🐍</button>
             <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
           </div>
         </div>
@@ -1130,10 +1133,21 @@ function renderRecordingsList() {
       if (!e.target.classList.contains('delete-recording-btn') && 
           !e.target.classList.contains('move-to-folder-btn') &&
           !e.target.classList.contains('move-to-root-btn') &&
+          !e.target.classList.contains('convert-to-code-btn') &&
           !e.target.classList.contains('bulk-checkbox')) {
         const id = parseInt(card.dataset.id);
         openRecording(id);
       }
+    });
+  });
+
+  // Convert to code handlers
+  container.querySelectorAll('.convert-to-code-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      const rec = state.recordings.find(r => r.id === id);
+      if (rec) downloadPythonCodeForRecording(rec);
     });
   });
   
@@ -2506,6 +2520,129 @@ async function uploadRecordingsToCi(recordings) {
 async function handleUploadCurrentToCi() {
   if (!state.currentRecording) return;
   await uploadRecordingsToCi([state.currentRecording]);
+}
+
+// ===== Python + Playwright code generation =====
+const RU_TO_LAT_MAP = {
+  а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'i',
+  к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',
+  х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya'
+};
+function transliterate(str) {
+  return String(str || '').split('').map(ch => {
+    const low = ch.toLowerCase();
+    if (RU_TO_LAT_MAP[low] !== undefined) {
+      const lat = RU_TO_LAT_MAP[low];
+      return ch === low ? lat : lat.charAt(0).toUpperCase() + lat.slice(1);
+    }
+    return ch;
+  }).join('');
+}
+function toSnakeCaseFunctionName(title) {
+  const latin = transliterate(title);
+  const cleaned = latin.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+  const name = cleaned || 'recorded_test';
+  return /^[a-z]/.test(name) ? `test_${name}` : `test_${name}`;
+}
+function pyEscape(str) {
+  return String(str == null ? '' : str)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n');
+}
+function generatePythonCode(recording) {
+  const title = recording.title || 'Recorded test';
+  const funcName = toSnakeCaseFunctionName(title);
+  const preconditions = (recording.preconditions && String(recording.preconditions).trim())
+    ? String(recording.preconditions).trim()
+    : 'Выполнена успешная регистрация #26992.';
+
+  const lines = [];
+  lines.push('import allure');
+  lines.push('from playwright.sync_api import expect');
+  lines.push('');
+  lines.push('');
+  lines.push(`def ${funcName}(page_with_auth):`);
+  lines.push(`    """`);
+  lines.push(`    Тест проверяет ${title}.`);
+  lines.push(`    Preconditions:`);
+  lines.push(`    - ${preconditions}`);
+  lines.push(`    """`);
+  lines.push(`    page_with_auth.goto(get_host_url())`);
+  lines.push('');
+
+  let navigateUsed = false;
+  const steps = Array.isArray(recording.steps) ? recording.steps : [];
+  steps.forEach((step) => {
+    const type = step.type;
+    if (type === 'setViewport') return;
+    if (type === 'navigate') {
+      if (navigateUsed) return;
+      navigateUsed = true;
+      return;
+    }
+    const path = step.path || (step.selectors && step.selectors[0] && step.selectors[0][0]) || '';
+    const name = step.name || '';
+    const value = step.value || '';
+    const text = step.text || '';
+
+    if (type === 'click') {
+      const desc = name ? `Нажать на кнопку "${name}"` : 'Нажать на элемент';
+      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
+      lines.push(`        element = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        element.click()`);
+      lines.push('');
+    } else if (type === 'change') {
+      const desc = `Ввести значение "${value}" в элемент с названием "${name}"`;
+      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
+      lines.push(`        field = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        field.fill("${pyEscape(value)}")`);
+      lines.push('');
+    } else if (type === 'waitForElement') {
+      const label = text || name || '';
+      const desc = `Проверка: элемент с названием "${label}" должен быть видим`;
+      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
+      lines.push(`        element = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        expect(element).to_be_visible()`);
+      lines.push('');
+    } else if (type === 'keyDown' || type === 'keyUp') {
+      const key = step.key || '';
+      if (type === 'keyDown' && key) {
+        lines.push(`    with allure.step("${pyEscape('Нажать клавишу "' + key + '"')}"):`);
+        lines.push(`        page_with_auth.keyboard.press("${pyEscape(key)}")`);
+        lines.push('');
+      }
+    } else if (type === 'requestAssertion') {
+      const method = (step.method || 'GET').toUpperCase();
+      const url = step.url || '';
+      lines.push(`    with allure.step("${pyEscape('Проверка запроса ' + method + ' ' + url)}"):`);
+      lines.push(`        pass  # TODO: реализовать проверку запроса`);
+      lines.push('');
+    } else {
+      lines.push(`    # TODO: неподдерживаемый шаг типа ${type}`);
+      lines.push('');
+    }
+  });
+
+  return lines.join('\n');
+}
+function downloadPythonCodeForRecording(recording) {
+  if (!recording) return;
+  const code = generatePythonCode(recording);
+  const blob = new Blob([code], { type: 'text/x-python;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${sanitizeFileName(recording.title)}.py`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+function handleConvertCurrentToCode() {
+  if (!state.currentRecording) return;
+  downloadPythonCodeForRecording(state.currentRecording);
 }
 
 async function handleBulkUploadToCi() {
