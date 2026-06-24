@@ -1034,6 +1034,7 @@ function renderRecordingsList() {
           <div class="recording-card-title">${recording.title}</div>
           <div class="recording-card-actions">
             ${state.currentFolder ? `<button class="move-to-root-btn" data-id="${recording.id}" title="Переместить в общий список">📤</button>` : `<button class="move-to-folder-btn" data-id="${recording.id}" title="Переместить в папку">📁</button>`}
+            <button class="convert-to-code-btn" data-id="${recording.id}" title="Преобразовать в Code (Python + Playwright)">🐍</button>
             <button class="delete-recording-btn" data-id="${recording.id}" title="Удалить запись">🗑</button>
           </div>
         </div>
@@ -1132,10 +1133,21 @@ function renderRecordingsList() {
       if (!e.target.classList.contains('delete-recording-btn') && 
           !e.target.classList.contains('move-to-folder-btn') &&
           !e.target.classList.contains('move-to-root-btn') &&
+          !e.target.classList.contains('convert-to-code-btn') &&
           !e.target.classList.contains('bulk-checkbox')) {
         const id = parseInt(card.dataset.id);
         openRecording(id);
       }
+    });
+  });
+
+  // Convert to code handlers
+  container.querySelectorAll('.convert-to-code-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      const rec = state.recordings.find(r => r.id === id);
+      if (rec) downloadPythonCodeForRecording(rec);
     });
   });
   
