@@ -2583,11 +2583,64 @@ function generatePythonCode(recording) {
   };
 
   const usedVarNames = new Set();
+  const RU_EN_DICT = {
+    'создать':'create','создания':'creating','создание':'creation','создана':'created','создан':'created',
+    'заявку':'task','заявка':'task','заявки':'task','заявок':'tasks',
+    'тип':'type','типа':'type','типы':'types',
+    'для':'for','тестов':'tests','тест':'test','теста':'test',
+    'добавить':'add','добавление':'add','добавления':'add',
+    'исполнителя':'executor','исполнитель':'executor','исполнители':'executors',
+    'сохранить':'save','сохранение':'save',
+    'вид':'work','работ':'type','работы':'type','работа':'work',
+    'описание':'description','описания':'description',
+    'выбрать':'select','выбор':'select','выберите':'select',
+    'адрес':'address','адреса':'address',
+    'договор':'contract','договора':'contract','обслуживания':'service','обслуживание':'service',
+    'номер':'number','номера':'number',
+    'история':'history','изменений':'changes','изменения':'changes',
+    'успешно':'successfully','успешный':'successful',
+    'отменить':'cancel','отмена':'cancel',
+    'удалить':'delete','удаление':'delete',
+    'закрыть':'close','применить':'apply',
+    'отправить':'submit','подтвердить':'confirm',
+    'далее':'next','назад':'back','продолжить':'continue',
+    'войти':'login','выйти':'logout','загрузить':'upload','скачать':'download',
+    'поле':'field','кнопка':'button','список':'list','меню':'menu',
+    'заявке':'task','к':'to','в':'in','на':'on','по':'by','и':'and',
+    'или':'or','с':'with','от':'from','до':'to','без':'without',
+    'настройки':'settings','настройка':'settings','профиль':'profile',
+    'пользователь':'user','пользователя':'user',
+    'имя':'name','название':'name','фамилия':'lastname',
+    'email':'email','почта':'email','телефон':'phone',
+    'пароль':'password','логин':'login',
+    'все':'all','новый':'new','новая':'new','новое':'new',
+  };
+  function translateName(base) {
+    const raw = String(base || '').trim();
+    if (!raw) return '';
+    const words = raw.split(/\s+/).filter(Boolean);
+    const out = [];
+    for (const w of words) {
+      const clean = w.replace(/[«»"'(),.:;!?]/g, '').toLowerCase();
+      if (!clean) continue;
+      if (/[а-яё]/i.test(clean)) {
+        out.push(RU_EN_DICT[clean] || transliterate(clean).toLowerCase().replace(/[^a-z0-9]/g, ''));
+      } else {
+        out.push(clean.replace(/[^a-z0-9]/g, ''));
+      }
+    }
+    let res = out.filter(Boolean).join('_');
+    if (/^\d+$/.test(res)) {
+      res = 'option_' + res;
+    } else if (/^\d/.test(res)) {
+      const stripped = res.replace(/^\d+_?/, '');
+      if (stripped) res = stripped;
+    }
+    return res;
+  }
   function makeVarName(base, suffix) {
-    const lat = transliterate(base || '').toLowerCase();
-    let cleaned = lat.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    let cleaned = translateName(base);
     if (!cleaned) cleaned = 'target';
-    // limit length
     const parts = cleaned.split('_').filter(Boolean).slice(0, 4);
     cleaned = parts.join('_');
     let name = suffix ? `${cleaned}_${suffix}` : cleaned;
@@ -2653,7 +2706,7 @@ function generatePythonCode(recording) {
         pushStep(desc, varName, `${varName}.click()`);
         return;
       } else {
-        const xpathLabel = rawPath || path;
+        const xpathLabel = rawPath || path.replace(/^xpath/i, '');
         const desc = `Нажать на элемент по xpath '${xpathLabel}'`;
         pushStep(desc, 'element', `element.click()`);
         return;
