@@ -2641,43 +2641,15 @@ function generatePythonCode(recording) {
     };
 
     if (type === 'click') {
-      // Selecting a value from a dropdown menu
-      if (isMenuItem(path)) {
-        const label = name || 'значение';
-        const desc = `Выбрать значение «${label}»`;
-        const varName = makeVarName(name || 'menu_item', 'option');
-        pushStep(desc, varName, `${varName}.click()`);
-        return;
-      }
-      // Opening a dropdown list (Input field that is followed by a MenuItem click)
-      const opensList = isInputField(path) || (nextStep && nextStep.type === 'click' && isMenuItem(nextStep.path));
-      if (opensList && name) {
-        const desc = `Открыть список «${name}»`;
-        const varName = makeVarName(name, 'field');
-        pushStep(desc, varName, `${varName}.click()`);
-        return;
-      }
-      // Button-like click
-      if (isButtonName(name)) {
-        const desc = `Нажать кнопку «${name}»`;
-        const varName = makeVarName(name, 'button');
-        pushStep(desc, varName, `${varName}.click()`);
-        return;
-      }
-      // Generic click with name
+      let label, varName;
       if (name) {
-        const desc = `Нажать на элемент «${name}»`;
-        const varName = makeVarName(name);
-        pushStep(desc, varName, `${varName}.click()`);
-        return;
+        label = name;
+        varName = makeVarName(name);
+      } else {
+        label = path;
+        varName = 'element';
       }
-      // Unknown click — likely focus on input that comes before a change step
-      if (nextStep && nextStep.type === 'change' && nextStep.path === path) {
-        // Skip the focus click; the change step will fill the value.
-        return;
-      }
-      const desc = 'Нажать на элемент';
-      const varName = makeVarName('target', 'element');
+      const desc = `Нажать на элемент '${label}'`;
       pushStep(desc, varName, `${varName}.click()`);
       return;
     }
@@ -2685,8 +2657,8 @@ function generatePythonCode(recording) {
     if (type === 'change') {
       const fieldLabel = name || fieldNameByPath[path] || '';
       const desc = fieldLabel
-        ? `Заполнить поле «${fieldLabel}» значением «${value}»`
-        : `Заполнить поле значением «${value}»`;
+        ? `Заполнить поле '${fieldLabel}' значением '${value}'`
+        : `Заполнить поле значением '${value}'`;
       const varName = makeVarName(fieldLabel || 'input', 'field');
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
       lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
