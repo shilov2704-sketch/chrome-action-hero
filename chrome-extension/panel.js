@@ -221,6 +221,8 @@ function initializeEventListeners() {
   if (bulkCiBtn) bulkCiBtn.addEventListener('click', handleBulkUploadToCi);
   const uploadCiBtn = document.getElementById('uploadCiBtn');
   if (uploadCiBtn) uploadCiBtn.addEventListener('click', handleUploadCurrentToCi);
+  const convertCodeBtn = document.getElementById('convertToCodeBtn');
+  if (convertCodeBtn) convertCodeBtn.addEventListener('click', handleConvertCurrentToCode);
   const delSelStepsBtn = document.getElementById('deleteSelectedStepsBtn');
   if (delSelStepsBtn) delSelStepsBtn.addEventListener('click', deleteSelectedSteps);
   const delSelStepsBtn2 = document.getElementById('playbackDeleteSelectedStepsBtn');
