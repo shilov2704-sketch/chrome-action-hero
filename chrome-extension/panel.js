@@ -2627,7 +2627,11 @@ function generatePythonCode(recording) {
       navigateUsed = true;
       return;
     }
-    const path = step.path || (step.selectors && step.selectors[0] && step.selectors[0][0]) || '';
+    const rawPath = step.path || '';
+    const selFirst = (step.selectors && step.selectors[0] && step.selectors[0][0]) || '';
+    // Prefer the "xpath//..." prefixed selector when available
+    let path = selFirst && /^xpath/i.test(selFirst) ? selFirst
+             : (rawPath ? (rawPath.startsWith('//') ? 'xpath' + rawPath : rawPath) : selFirst);
     const name = (step.name || '').trim();
     const value = step.value || '';
     const text = step.text || '';
@@ -2645,21 +2649,20 @@ function generatePythonCode(recording) {
       if (name) {
         label = name;
         varName = makeVarName(name);
+        const desc = `Нажать на элемент '${label}'`;
+        pushStep(desc, varName, `${varName}.click()`);
+        return;
       } else {
-        label = path;
-        varName = 'element';
+        const xpathLabel = rawPath || path;
+        const desc = `Нажать на элемент по xpath '${xpathLabel}'`;
+        pushStep(desc, 'element', `element.click()`);
+        return;
       }
-      const desc = `Нажать на элемент '${label}'`;
-      pushStep(desc, varName, `${varName}.click()`);
-      return;
     }
 
     if (type === 'change') {
-      const fieldLabel = name || fieldNameByPath[path] || '';
-      const desc = fieldLabel
-        ? `Заполнить поле '${fieldLabel}' значением '${value}'`
-        : `Заполнить поле значением '${value}'`;
-      const varName = makeVarName(fieldLabel || 'input', 'field');
+      const desc = `Заполнить поле значением '${value}'`;
+      const varName = 'input_field';
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
       lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
       lines.push(`        ${varName}.fill("${pyEscape(value)}")`);
