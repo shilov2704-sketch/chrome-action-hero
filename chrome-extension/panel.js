@@ -2572,9 +2572,54 @@ function generatePythonCode(recording) {
   lines.push(`    page_with_auth.goto(get_host_url())`);
   lines.push('');
 
+  // ---- helpers ----
+  const BUTTON_KEYWORDS = ['сохранить','создать','добавить','удалить','отмена','отменить','закрыть','применить','выбрать','отправить','подтвердить','загрузить','скачать','войти','выйти','далее','назад','продолжить','ок'];
+  const isMenuItem = (p) => /MenuItem_MenuItemRoot/i.test(p || '');
+  const isInputField = (p) => /Input_InputElement/i.test(p || '');
+  const isButtonName = (n) => {
+    const low = (n || '').toLowerCase().trim();
+    if (!low) return false;
+    return BUTTON_KEYWORDS.some(k => low === k || low.startsWith(k + ' ') || low.endsWith(' ' + k) || low.includes(' ' + k + ' '));
+  };
+
+  const usedVarNames = new Set();
+  function makeVarName(base, suffix) {
+    const lat = transliterate(base || '').toLowerCase();
+    let cleaned = lat.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!cleaned) cleaned = 'target';
+    // limit length
+    const parts = cleaned.split('_').filter(Boolean).slice(0, 4);
+    cleaned = parts.join('_');
+    let name = suffix ? `${cleaned}_${suffix}` : cleaned;
+    if (!name) name = 'target_element';
+    let final = name, i = 2;
+    while (usedVarNames.has(final)) { final = `${name}_${i++}`; }
+    usedVarNames.add(final);
+    return final;
+  }
+
+  const ASSERTION_DESC = {
+    visible:   (label) => `Проверить, что элемент «${label}» отображается`,
+    text:      (label, v) => `Проверить текст элемента «${label}»: «${v}»`,
+    value:     (label, v) => `Проверить значение поля «${label}»: «${v}»`,
+    enabled:   (label) => `Проверить, что элемент «${label}» доступен (enabled)`,
+    disabled:  (label) => `Проверить, что элемент «${label}» недоступен (disabled)`,
+    exists:    (label) => `Проверить, что элемент «${label}» присутствует на странице`,
+    notExists: (label) => `Проверить, что элемент «${label}» отсутствует на странице`,
+  };
+
   let navigateUsed = false;
   const steps = Array.isArray(recording.steps) ? recording.steps : [];
-  steps.forEach((step) => {
+
+  // Build a map of "field name by xpath" using preceding click steps on Input_InputElement
+  const fieldNameByPath = {};
+  steps.forEach((s) => {
+    if (s && s.type === 'click' && s.name && isInputField(s.path)) {
+      fieldNameByPath[s.path] = s.name;
+    }
+  });
+
+  steps.forEach((step, idx) => {
     const type = step.type;
     if (type === 'setViewport') return;
     if (type === 'navigate') {
@@ -2583,46 +2628,127 @@ function generatePythonCode(recording) {
       return;
     }
     const path = step.path || (step.selectors && step.selectors[0] && step.selectors[0][0]) || '';
-    const name = step.name || '';
+    const name = (step.name || '').trim();
     const value = step.value || '';
     const text = step.text || '';
+    const nextStep = steps[idx + 1];
+
+    const pushStep = (desc, varName, action) => {
+      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
+      lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        ${action}`);
+      lines.push('');
+    };
 
     if (type === 'click') {
-      const desc = name ? `Нажать на кнопку "${name}"` : 'Нажать на элемент';
+      // Selecting a value from a dropdown menu
+      if (isMenuItem(path)) {
+        const label = name || 'значение';
+        const desc = `Выбрать значение «${label}»`;
+        const varName = makeVarName(name || 'menu_item', 'option');
+        pushStep(desc, varName, `${varName}.click()`);
+        return;
+      }
+      // Opening a dropdown list (Input field that is followed by a MenuItem click)
+      const opensList = isInputField(path) || (nextStep && nextStep.type === 'click' && isMenuItem(nextStep.path));
+      if (opensList && name) {
+        const desc = `Открыть список «${name}»`;
+        const varName = makeVarName(name, 'field');
+        pushStep(desc, varName, `${varName}.click()`);
+        return;
+      }
+      // Button-like click
+      if (isButtonName(name)) {
+        const desc = `Нажать кнопку «${name}»`;
+        const varName = makeVarName(name, 'button');
+        pushStep(desc, varName, `${varName}.click()`);
+        return;
+      }
+      // Generic click with name
+      if (name) {
+        const desc = `Нажать на элемент «${name}»`;
+        const varName = makeVarName(name);
+        pushStep(desc, varName, `${varName}.click()`);
+        return;
+      }
+      // Unknown click — likely focus on input that comes before a change step
+      if (nextStep && nextStep.type === 'change' && nextStep.path === path) {
+        // Skip the focus click; the change step will fill the value.
+        return;
+      }
+      const desc = 'Нажать на элемент';
+      const varName = makeVarName('target', 'element');
+      pushStep(desc, varName, `${varName}.click()`);
+      return;
+    }
+
+    if (type === 'change') {
+      const fieldLabel = name || fieldNameByPath[path] || '';
+      const desc = fieldLabel
+        ? `Заполнить поле «${fieldLabel}» значением «${value}»`
+        : `Заполнить поле значением «${value}»`;
+      const varName = makeVarName(fieldLabel || 'input', 'field');
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
-      lines.push(`        element = page_with_auth.locator("${pyEscape(path)}")`);
-      lines.push(`        element.click()`);
+      lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        ${varName}.fill("${pyEscape(value)}")`);
       lines.push('');
-    } else if (type === 'change') {
-      const desc = `Ввести значение "${value}" в элемент с названием "${name}"`;
+      return;
+    }
+
+    if (type === 'waitForElement') {
+      const assertionType = step.assertionType || 'visible';
+      const label = name || text || 'элемент';
+      const descFn = ASSERTION_DESC[assertionType] || ASSERTION_DESC.visible;
+      const desc = descFn(label, value || text);
+      const varName = makeVarName(label, 'element');
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
-      lines.push(`        field = page_with_auth.locator("${pyEscape(path)}")`);
-      lines.push(`        field.fill("${pyEscape(value)}")`);
+      lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
+      switch (assertionType) {
+        case 'text':
+          lines.push(`        expect(${varName}).to_have_text("${pyEscape(text || value)}")`);
+          break;
+        case 'value':
+          lines.push(`        expect(${varName}).to_have_value("${pyEscape(value || text)}")`);
+          break;
+        case 'enabled':
+          lines.push(`        expect(${varName}).to_be_enabled()`);
+          break;
+        case 'disabled':
+          lines.push(`        expect(${varName}).to_be_disabled()`);
+          break;
+        case 'notExists':
+          lines.push(`        expect(${varName}).not_to_be_visible()`);
+          break;
+        case 'exists':
+        case 'visible':
+        default:
+          lines.push(`        expect(${varName}).to_be_visible()`);
+      }
       lines.push('');
-    } else if (type === 'waitForElement') {
-      const label = text || name || '';
-      const desc = `Проверка: элемент с названием "${label}" должен быть видим`;
-      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
-      lines.push(`        element = page_with_auth.locator("${pyEscape(path)}")`);
-      lines.push(`        expect(element).to_be_visible()`);
-      lines.push('');
-    } else if (type === 'keyDown' || type === 'keyUp') {
+      return;
+    }
+
+    if (type === 'keyDown' || type === 'keyUp') {
       const key = step.key || '';
       if (type === 'keyDown' && key) {
-        lines.push(`    with allure.step("${pyEscape('Нажать клавишу "' + key + '"')}"):`);
+        lines.push(`    with allure.step("${pyEscape('Нажать клавишу «' + key + '»')}"):`);
         lines.push(`        page_with_auth.keyboard.press("${pyEscape(key)}")`);
         lines.push('');
       }
-    } else if (type === 'requestAssertion') {
+      return;
+    }
+
+    if (type === 'requestAssertion') {
       const method = (step.method || 'GET').toUpperCase();
       const url = step.url || '';
       lines.push(`    with allure.step("${pyEscape('Проверка запроса ' + method + ' ' + url)}"):`);
       lines.push(`        pass  # TODO: реализовать проверку запроса`);
       lines.push('');
-    } else {
-      lines.push(`    # TODO: неподдерживаемый шаг типа ${type}`);
-      lines.push('');
+      return;
     }
+
+    lines.push(`    # TODO: неподдерживаемый шаг типа ${type}`);
+    lines.push('');
   });
 
   return lines.join('\n');
