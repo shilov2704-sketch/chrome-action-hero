@@ -2572,165 +2572,688 @@ function generatePythonCode(recording) {
   lines.push(`    page_with_auth.goto(get_host_url())`);
   lines.push('');
 
-  // ---- helpers ----
-  const BUTTON_KEYWORDS = ['сохранить','создать','добавить','удалить','отмена','отменить','закрыть','применить','выбрать','отправить','подтвердить','загрузить','скачать','войти','выйти','далее','назад','продолжить','ок'];
-  const isMenuItem = (p) => /MenuItem_MenuItemRoot/i.test(p || '');
-  const isInputField = (p) => /Input_InputElement/i.test(p || '');
-  const isButtonName = (n) => {
-    const low = (n || '').toLowerCase().trim();
-    if (!low) return false;
-    return BUTTON_KEYWORDS.some(k => low === k || low.startsWith(k + ' ') || low.endsWith(' ' + k) || low.includes(' ' + k + ' '));
-  };
-
   const usedVarNames = new Set();
-  const RU_EN_DICT = {
-    'создать':'create','создания':'creating','создание':'creation','создана':'created','создан':'created',
-    'заявку':'task','заявка':'task','заявки':'task','заявок':'tasks',
-    'тип':'type','типа':'type','типы':'types',
-    'для':'for','тестов':'tests','тест':'test','теста':'test',
-    'добавить':'add','добавление':'add','добавления':'add',
-    'исполнителя':'executor','исполнитель':'executor','исполнители':'executors',
-    'сохранить':'save','сохранение':'save',
-    'вид':'work','работ':'type','работы':'type','работа':'work',
-    'описание':'description','описания':'description',
-    'выбрать':'select','выбор':'select','выберите':'select',
-    'адрес':'address','адреса':'address',
-    'договор':'contract','договора':'contract','обслуживания':'service','обслуживание':'service',
-    'номер':'number','номера':'number',
-    'история':'history','изменений':'changes','изменения':'changes',
-    'успешно':'successfully','успешный':'successful',
-    'отменить':'cancel','отмена':'cancel',
-    'удалить':'delete','удаление':'delete',
-    'закрыть':'close','применить':'apply',
-    'отправить':'submit','подтвердить':'confirm',
-    'далее':'next','назад':'back','продолжить':'continue',
-    'войти':'login','выйти':'logout','загрузить':'upload','скачать':'download',
-    'поле':'field','кнопка':'button','список':'list','меню':'menu',
-    'заявке':'task','к':'to','в':'in','на':'on','по':'by','и':'and',
-    'или':'or','с':'with','от':'from','до':'to','без':'without',
-    'настройки':'settings','настройка':'settings','профиль':'profile',
-    'пользователь':'user','пользователя':'user',
-    'имя':'name','название':'name','фамилия':'lastname',
-    'email':'email','почта':'email','телефон':'phone',
-    'пароль':'password','логин':'login',
-    'все':'all','новый':'new','новая':'new','новое':'new',
-  };
-  function translateName(base) {
-    const raw = String(base || '').trim();
-    if (!raw) return '';
-    const words = raw.split(/\s+/).filter(Boolean);
-    const out = [];
-    for (const w of words) {
-      const clean = w.replace(/[«»"'(),.:;!?]/g, '').toLowerCase();
-      if (!clean) continue;
-      if (/[а-яё]/i.test(clean)) {
-        out.push(RU_EN_DICT[clean] || transliterate(clean).toLowerCase().replace(/[^a-z0-9]/g, ''));
-      } else {
-        out.push(clean.replace(/[^a-z0-9]/g, ''));
+
+  function transliterateSimple(str) {
+    const map = {
+      'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z',
+      'и':'i','й':'i','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r',
+      'с':'s','т':'t','у':'u','ф':'f','х':'h','ц':'ts','ч':'ch','ш':'sh',
+      'щ':'sch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya'
+    };
+    return String(str).split('').map(ch => {
+      const low = ch.toLowerCase();
+      return map[low] ? (ch === low ? map[low] : map[low].charAt(0).toUpperCase() + map[low].slice(1)) : ch;
+    }).join('');
+  }
+
+    function makeVarName(base, suffix) {
+      const TRANSLATE_DICT = {
+        // === ТОЧНЫЕ СООТВЕТСТВИЯ ДЛЯ ФИО ===
+        'григорьев максим артёмович': 'grigorev_maksim_artemovich',
+        'григорьев максим артемович': 'grigorev_maksim_artemovich',
+        'завьялов лев владимирович': 'zavyalov_lev_vladimirovich',
+        'гончаров александр филиппович': 'goncharov_aleksandr_filippovich',
+        'дружинин артём петрович': 'druzhinin_artem_petrovich',
+        'дружинин артем петрович': 'druzhinin_artem_petrovich',
+        
+        // === ТОЧНЫЕ СООТВЕТСТВИЯ ДЛЯ ДЛИННЫХ ФРАЗ ===
+        'значение из справочника объектов селект10 десятый': 'value_from_reference_objects_select10_tenth',
+        'значение из справочника объектов мультиселект4 четвертый заполнены все поля5 пятый немобильный добавить': 'value_from_reference_objects_multiselect4_fourth_filled_all_fields5_fifth_nonmobile_add',
+        'значение из справочника компаний селект1первая компания': 'value_from_reference_companies_select1first_company',
+        'значение из справочника компаний мультиселект1первая компания10десятая компаниядобавить': 'value_from_reference_companies_multiselect1first_company10tenth_companyadd',
+        'значение из справочника сотрудников селектаввладелец автотесты ui': 'value_from_reference_employees_selectavowner_autotests_ui',
+        'значение из справочника сотрудников мультиселектмггригорьев максим артёмовичлззавьялов лев владимировичдобавить': 'value_from_reference_employees_multiselectmggrigorev_maksim_artemovichlzzavyalov_lev_vladimirovichadd',
+        'значение из справочника заказчиков селектаггончаров александр филиппович': 'value_from_reference_customers_selectaggoncharov_aleksandr_filippovich',
+        'значение из справочника заказчиков мультиселектаггончаров александр филипповичаддружинин артём петровичдобавить': 'value_from_reference_customers_multiselectaggoncharov_aleksandr_filippovichadddruzhinin_artem_petrovichadd',
+        
+        // === СОКРАЩЕНИЯ ===
+        'селект': 'select',
+        'мультиселект': 'multiselect',
+        'автотесты': 'autotests',
+        
+        // === ДОПОЛНИТЕЛЬНЫЕ СЛОВА ===
+        'десятый': 'tenth',
+        'четвертый': 'fourth',
+        'заполнены': 'filled',
+        'немобильный': 'nonmobile',
+        'сотрудников': 'employees',
+        'заказчиков': 'customers',
+        'объектов': 'objects',
+        'компаний': 'companies',
+        'владелец': 'owner',
+        'первая': 'first',
+        'десятая': 'tenth',
+        'добавить': 'add',
+        'выбрать': 'select',
+        'удалить': 'delete',
+        'из': 'from',
+        'из справочника': 'from_reference',
+        'значение из': 'value_from',
+        'значение_из': 'value_from',
+        // === СУЩЕСТВИТЕЛЬНЫЕ ===
+        // Общие
+        'заявка': 'task',
+        'заявки': 'task',
+        'заявку': 'task',
+        'заявок': 'task',
+        'тип': 'type',
+        'типа': 'type',
+        'типы': 'type',
+        'типов': 'type',
+        'проверка': 'check',
+        'проверки': 'check',
+        'сохранение': 'save',
+        'сохранения': 'save',
+        'значение': 'value',
+        'значения': 'value',
+        'значений': 'value',
+        'дополнительных': 'additional',
+        'доп': 'additional',
+        'поле': 'field',
+        'поля': 'field',
+        'полей': 'field',
+        'чек': 'check',
+        'чека': 'check',
+        'лист': 'list',
+        'листа': 'list',
+        'листе': 'list',
+        'листы': 'list',
+        'атрибут': 'attribute',
+        'атрибута': 'attribute',
+        'атрибуты': 'attribute',
+        'целое': 'integer',
+        'число': 'number',
+        'дробное': 'decimal',
+        'дата': 'date',
+        'время': 'time',
+        'селект': 'select',
+        'мультиселект': 'multiselect',
+        'многострочный': 'multiline',
+        'текст': 'text',
+        'строка': 'string',
+        'справочник': 'reference',
+        'справочника': 'reference',
+        'объект': 'object',
+        'объектов': 'object',
+        'компания': 'company',
+        'компании': 'company',
+        'компаний': 'company',
+        'сотрудник': 'employee',
+        'сотрудников': 'employee',
+        'заказчик': 'customer',
+        'заказчиков': 'customer',
+        'владелец': 'owner',
+        'автотесты': 'autotests',
+        'автотест': 'autotest',
+        'ui': 'ui',
+        'первая': 'first',
+        'десятая': 'tenth',
+        'все': 'all',
+        'всех': 'all',
+        'чеклист': 'checklist',
+        'чеклисты': 'checklist',
+        'допполей': 'additionalfields',
+        'допполя': 'additionalfields',
+        'селектзначение': 'selectvalue',
+        'мультиселектзначение': 'multiselectvalue',
+        'первая_компания': 'first_company',
+        'десятая_компания': 'tenth_company',
+        'владелец_автотесты_ui': 'owner_autotests_ui',
+        'григорьев_максим_артемович': 'grigorev_maksim_artemovich',
+        'завьялов_лев_владимирович': 'zavyalov_lev_vladimirovich',
+        'гончаров_александр_филиппович': 'goncharov_aleksandr_filippovich',
+        'дружинин_артем_петрович': 'druzhinin_artem_petrovich',
+        'исполнитель': 'executor',
+        'исполнителя': 'executor',
+        'исполнители': 'executors',
+        'вид': 'work',
+        'вида': 'work',
+        'работ': 'work',
+        'работы': 'work',
+        'работа': 'work',
+        'описание': 'description',
+        'описания': 'description',
+        'адрес': 'address',
+        'адреса': 'address',
+        'договор': 'contract',
+        'договора': 'contract',
+        'обслуживание': 'service',
+        'обслуживания': 'service',
+        'номер': 'number',
+        'номера': 'number',
+        'история': 'history',
+        'изменение': 'change',
+        'изменения': 'changes',
+        'изменений': 'changes',
+        'кнопка': 'button',
+        'кнопки': 'button',
+        'список': 'list',
+        'списка': 'list',
+        'меню': 'menu',
+        'настройка': 'setting',
+        'настройки': 'settings',
+        'профиль': 'profile',
+        'пользователь': 'user',
+        'пользователя': 'user',
+        'имя': 'name',
+        'название': 'name',
+        'фамилия': 'lastname',
+        'почта': 'email',
+        'телефон': 'phone',
+        'пароль': 'password',
+        'логин': 'login',
+        'страница': 'page',
+        'страницы': 'page',
+        'форма': 'form',
+        'формы': 'form',
+        'данные': 'data',
+        'результат': 'result',
+        'результаты': 'results',
+        'статус': 'status',
+        'ошибка': 'error',
+        'ошибки': 'errors',
+        'сообщение': 'message',
+        'сообщения': 'messages',
+        'заголовок': 'header',
+        'заголовка': 'header',
+        'контент': 'content',
+        'файл': 'file',
+        'файла': 'file',
+        'файлы': 'files',
+        'папка': 'folder',
+        'папки': 'folder',
+        'документ': 'document',
+        'документы': 'documents',
+        'отчет': 'report',
+        'отчеты': 'reports',
+
+        // === ГЛАГОЛЫ ===
+        'создать': 'create',
+        'создана': 'created',
+        'создан': 'created',
+        'создавать': 'create',
+        'создается': 'created',
+        'обновлена': 'updated',
+        'обновлен': 'updated',
+        'обновлять': 'update',
+        'сохранить': 'save',
+        'сохранена': 'saved',
+        'сохранен': 'saved',
+        'сохранять': 'save',
+        'добавить': 'add',
+        'добавлена': 'added',
+        'добавлен': 'added',
+        'добавлять': 'add',
+        'удалить': 'delete',
+        'удалена': 'deleted',
+        'удален': 'deleted',
+        'удалять': 'delete',
+        'выбрать': 'select',
+        'выбрана': 'selected',
+        'выбран': 'selected',
+        'выбирать': 'select',
+        'заполнить': 'fill',
+        'заполнена': 'filled',
+        'заполнен': 'filled',
+        'заполнять': 'fill',
+        'нажать': 'click',
+        'нажимать': 'click',
+        'проверить': 'check',
+        'проверена': 'checked',
+        'проверять': 'check',
+        'отменить': 'cancel',
+        'отменена': 'canceled',
+        'отменен': 'canceled',
+        'отменять': 'cancel',
+        'закрыть': 'close',
+        'закрыта': 'closed',
+        'закрыт': 'closed',
+        'закрывать': 'close',
+        'применить': 'apply',
+        'применена': 'applied',
+        'применен': 'applied',
+        'применять': 'apply',
+        'отправить': 'submit',
+        'отправлена': 'submitted',
+        'отправлен': 'submitted',
+        'отправлять': 'submit',
+        'подтвердить': 'confirm',
+        'подтверждена': 'confirmed',
+        'подтвержден': 'confirmed',
+        'подтверждать': 'confirm',
+        'загрузить': 'upload',
+        'загружена': 'uploaded',
+        'загружен': 'uploaded',
+        'загружать': 'upload',
+        'скачать': 'download',
+        'скачана': 'downloaded',
+        'скачан': 'downloaded',
+        'скачивать': 'download',
+        'войти': 'login',
+        'вошел': 'logged_in',
+        'входить': 'login',
+        'выйти': 'logout',
+        'вышел': 'logged_out',
+        'выходить': 'logout',
+        'перейти': 'go',
+        'переход': 'go',
+        'переходить': 'go',
+        'продолжить': 'continue',
+        'продолжение': 'continue',
+        'продолжать': 'continue',
+        'открыть': 'open',
+        'открыта': 'opened',
+        'открыт': 'opened',
+        'открывать': 'open',
+        'назад': 'back',
+        'далее': 'next',
+
+        // === ПРИЛАГАТЕЛЬНЫЕ ===
+        'успешно': 'successfully',
+        'успешная': 'successful',
+        'успешное': 'successful',
+        'успешный': 'successful',
+        'успешные': 'successful',
+        'новый': 'new',
+        'новая': 'new',
+        'новое': 'new',
+        'новые': 'new',
+        'старый': 'old',
+        'старая': 'old',
+        'старое': 'old',
+        'старые': 'old',
+        'активный': 'active',
+        'активная': 'active',
+        'активное': 'active',
+        'активные': 'active',
+        'доступный': 'available',
+        'доступная': 'available',
+        'доступное': 'available',
+        'доступные': 'available',
+        'недоступный': 'unavailable',
+        'недоступная': 'unavailable',
+        'недоступное': 'unavailable',
+        'недоступные': 'unavailable',
+        'обязательный': 'required',
+        'обязательная': 'required',
+        'обязательное': 'required',
+        'обязательные': 'required',
+        'пустой': 'empty',
+        'пустая': 'empty',
+        'пустое': 'empty',
+        'пустые': 'empty',
+        'заполненный': 'filled',
+        'заполненная': 'filled',
+        'заполненное': 'filled',
+        'заполненные': 'filled',
+        'главный': 'main',
+        'главная': 'main',
+        'главное': 'main',
+        'главные': 'main',
+        'общий': 'common',
+        'общая': 'common',
+        'общее': 'common',
+        'общие': 'common',
+        'частный': 'private',
+        'частная': 'private',
+        'частное': 'private',
+        'частные': 'private',
+        'публичный': 'public',
+        'публичная': 'public',
+        'публичное': 'public',
+        'публичные': 'public',
+        'внутренний': 'internal',
+        'внутренняя': 'internal',
+        'внутреннее': 'internal',
+        'внутренние': 'internal',
+        'внешний': 'external',
+        'внешняя': 'external',
+        'внешнее': 'external',
+        'внешние': 'external',
+
+        // === ПРЕДЛОГИ И СОЮЗЫ ===
+        'для': 'for',
+        'с': 'with',
+        'со': 'with',
+        'без': 'without',
+        'на': 'on',
+        'в': 'in',
+        'во': 'in',
+        'к': 'to',
+        'ко': 'to',
+        'от': 'from',
+        'ото': 'from',
+        'до': 'to',
+        'по': 'by',
+        'и': 'and',
+        'или': 'or',
+        'но': 'but',
+        'а': 'and',
+        'не': 'not',
+        'у': 'at',
+        'за': 'for',
+        'о': 'about',
+        'об': 'about',
+        'про': 'about',
+        'через': 'through',
+        'между': 'between',
+        'среди': 'among',
+
+        // === ЧИСЛИТЕЛЬНЫЕ И КВАНТОРЫ ===
+        'все': 'all',
+        'вся': 'all',
+        'всё': 'all',
+        'всех': 'all',
+        'всем': 'all',
+        'каждый': 'each',
+        'каждая': 'each',
+        'каждое': 'each',
+        'каждые': 'each',
+        'один': 'one',
+        'одна': 'one',
+        'одно': 'one',
+        'одни': 'one',
+        'два': 'two',
+        'две': 'two',
+        'три': 'three',
+        'четыре': 'four',
+        'пять': 'five',
+        'шесть': 'six',
+        'семь': 'seven',
+        'восемь': 'eight',
+        'девять': 'nine',
+        'десять': 'ten',
+        'первый': 'first',
+        'первая': 'first',
+        'первое': 'first',
+        'второй': 'second',
+        'вторая': 'second',
+        'второе': 'second',
+        'третий': 'third',
+        'третья': 'third',
+        'третье': 'third',
+        'четвертый': 'fourth',
+        'четвертая': 'fourth',
+        'четвертое': 'fourth',
+        'пятый': 'fifth',
+        'пятая': 'fifth',
+        'пятое': 'fifth',
+
+        // === СОСТАВНЫЕ ФРАЗЫ (для точного совпадения) ===
+        'проверка_сохранения': 'check_save',
+        'значений_всех': 'values_all',
+        'значений_всех_типов': 'values_all_types',
+        'дополнительных_полей': 'additional_fields',
+        'в_чек_листе': 'in_checklist',
+        'заявка_успешно_создана': 'task_successfully_created',
+        'заявка_успешно_обновлена': 'task_successfully_updated',
+        'нажать_кнопку': 'click_button',
+        'нажать_на_элемент': 'click_element',
+        'заполнить_поле': 'fill_field',
+        'проверить_текст': 'check_text',
+        'проверить_значение': 'check_value',
+        'значение_из': 'value_from',
+        'справочника_объектов': 'reference_objects',
+        'справочника_компаний': 'reference_companies',
+        'справочника_сотрудников': 'reference_employees',
+        'справочника_заказчиков': 'reference_customers',
+        'селектзначение_2': 'selectvalue_2',
+        'мультиселектзначение_1значение_2добавить': 'multiselectvalue_1value_2add',
+        'значение_из_справочника_объектов_селект10_десятый': 'value_from_reference_objects_select10_tenth',
+        'значение_из_справочника_объектов_мультиселект4_четвертый_заполнены_все_поля5_пятый_немобильный_добавить': 'value_from_reference_objects_multiselect4_fourth_filled_all_fields5_fifth_nonmobile_add',
+        'значение_из_справочника_компаний_селект1первая_компания': 'value_from_reference_companies_select1first_company',
+        'значение_из_справочника_компаний_мультиселект1первая_компания10десятая_компаниядобавить': 'value_from_reference_companies_multiselect1first_company10tenth_companyadd',
+        'значение_из_справочника_сотрудников_селектаввладелец_автотесты_ui': 'value_from_reference_employees_selectavowner_autotests_ui',
+        'значение_из_справочника_сотрудников_мультиселектмггригорьев_максим_артемовичлззавьялов_лев_владимировичдобавить': 'value_from_reference_employees_multiselectmggrigorev_maksim_artemovichlzzavyalov_lev_vladimirovichadd',
+        'значение_из_справочника_заказчиков_селектаггончаров_александр_филиппович': 'value_from_reference_customers_selectaggoncharov_aleksandr_filippovich',
+        'значение_из_справочника_заказчиков_мультиселектаггончаров_александр_филипповичаддружинин_артем_петровичдобавить': 'value_from_reference_customers_multiselectaggoncharov_aleksandr_filippovichadddruzhinin_artem_petrovichadd'
+      };
+
+      let cleaned = String(base || '').trim();
+      
+      // Заменяем сложные составные слова целиком (сначала самые длинные)
+      const sortedKeys = Object.keys(TRANSLATE_DICT).sort((a, b) => b.length - a.length);
+      let translated = cleaned;
+      for (const rus of sortedKeys) {
+        const regex = new RegExp(rus, 'gi');
+        if (regex.test(translated)) {
+          translated = translated.replace(regex, TRANSLATE_DICT[rus]);
+        }
+      }
+      
+      // Если после замены остались русские буквы - транслитерируем
+      if (/[а-яё]/i.test(translated)) {
+        translated = transliterateSimple(translated);
+      }
+      
+      // Очищаем от спецсимволов
+      let result = translated
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+      
+      if (!result) result = 'element';
+      if (/^\d+$/.test(result)) result = 'option_' + result;
+      else if (/^\d/.test(result)) {
+        result = result.replace(/^\d+_?/, '');
+        if (!result) result = 'element';
+      }
+      
+      let name = suffix ? `${result}_${suffix}` : result;
+      if (!name) name = 'element';
+      
+      let final = name;
+      let i = 1;
+      while (usedVarNames.has(final)) {
+        final = `${name}_${i}`;
+        i++;
+      }
+      usedVarNames.add(final);
+      return final;
+    }
+
+  // Функция для определения, является ли элемент кнопкой
+  function isButton(step) {
+    // Проверяем по названию
+    const name = (step.name || '').toLowerCase();
+    const buttonKeywords = ['сохранить', 'создать', 'добавить', 'удалить', 'отменить', 'закрыть', 
+                           'применить', 'отправить', 'подтвердить', 'загрузить', 'скачать', 
+                           'войти', 'выйти', 'выбрать', 'нажать', 'перейти', 'далее', 'назад', 
+                           'продолжить', 'ок', 'отмена', 'сохранение', 'добавление'];
+    
+    for (const keyword of buttonKeywords) {
+      if (name.includes(keyword)) {
+        return true;
       }
     }
-    let res = out.filter(Boolean).join('_');
-    if (/^\d+$/.test(res)) {
-      res = 'option_' + res;
-    } else if (/^\d/.test(res)) {
-      const stripped = res.replace(/^\d+_?/, '');
-      if (stripped) res = stripped;
+    
+    // Проверяем по текстовому селектору
+    if (step.selectors) {
+      for (const selGroup of step.selectors) {
+        if (Array.isArray(selGroup) && selGroup.length > 0) {
+          const sel = selGroup[0];
+          if (typeof sel === 'string' && sel.startsWith('text/')) {
+            const text = sel.replace('text/', '').toLowerCase();
+            for (const keyword of buttonKeywords) {
+              if (text.includes(keyword)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
     }
-    return res;
-  }
-  function makeVarName(base, suffix) {
-    let cleaned = translateName(base);
-    if (!cleaned) cleaned = 'target';
-    const parts = cleaned.split('_').filter(Boolean).slice(0, 4);
-    cleaned = parts.join('_');
-    let name = suffix ? `${cleaned}_${suffix}` : cleaned;
-    if (!name) name = 'target_element';
-    let final = name, i = 2;
-    while (usedVarNames.has(final)) { final = `${name}_${i++}`; }
-    usedVarNames.add(final);
-    return final;
+    
+    // Проверяем по типу элемента из XPath или aria
+    if (step.path) {
+      if (step.path.includes('button') || step.path.includes('Button')) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
-  const ASSERTION_DESC = {
-    visible:   (label) => `Проверить, что элемент «${label}» отображается`,
-    text:      (label, v) => `Проверить текст элемента «${label}»: «${v}»`,
-    value:     (label, v) => `Проверить значение поля «${label}»: «${v}»`,
-    enabled:   (label) => `Проверить, что элемент «${label}» доступен (enabled)`,
-    disabled:  (label) => `Проверить, что элемент «${label}» недоступен (disabled)`,
-    exists:    (label) => `Проверить, что элемент «${label}» присутствует на странице`,
-    notExists: (label) => `Проверить, что элемент «${label}» отсутствует на странице`,
-  };
+  function extractNameFromSelectors(selectors) {
+    if (!selectors || !Array.isArray(selectors)) return '';
+    for (const selGroup of selectors) {
+      if (Array.isArray(selGroup) && selGroup.length > 0) {
+        const sel = selGroup[0];
+        if (typeof sel === 'string' && sel.startsWith('text/')) {
+          return sel.replace('text/', '');
+        }
+        if (typeof sel === 'string' && sel.startsWith('aria/')) {
+          const ariaMatch = sel.match(/aria\/(?:\[[^\]]*["']([^"']+)["']\])/);
+          if (ariaMatch) return ariaMatch[1];
+          return sel.replace('aria/', '');
+        }
+      }
+    }
+    return '';
+  }
 
-  let navigateUsed = false;
   const steps = Array.isArray(recording.steps) ? recording.steps : [];
+  let navigateUsed = false;
 
-  // Build a map of "field name by xpath" using preceding click steps on Input_InputElement
-  const fieldNameByPath = {};
-  steps.forEach((s) => {
-    if (s && s.type === 'click' && s.name && isInputField(s.path)) {
-      fieldNameByPath[s.path] = s.name;
-    }
-  });
-
-  steps.forEach((step, idx) => {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
     const type = step.type;
-    if (type === 'setViewport') return;
+    
+    if (type === 'setViewport') continue;
     if (type === 'navigate') {
-      if (navigateUsed) return;
+      if (navigateUsed) continue;
       navigateUsed = true;
-      return;
+      continue;
     }
-    const rawPath = step.path || '';
-    const selFirst = (step.selectors && step.selectors[0] && step.selectors[0][0]) || '';
-    // Prefer the "xpath//..." prefixed selector when available
-    let path = selFirst && /^xpath/i.test(selFirst) ? selFirst
-             : (rawPath ? (rawPath.startsWith('//') ? 'xpath' + rawPath : rawPath) : selFirst);
-    const name = (step.name || '').trim();
+
+    // Определяем path
+    let path = '';
+    if (step.path) {
+      path = step.path;
+    } else if (step.selectors && step.selectors.length > 0) {
+      const firstSelector = step.selectors[0];
+      if (Array.isArray(firstSelector) && firstSelector.length > 0) {
+        const sel = firstSelector[0];
+        if (typeof sel === 'string' && sel.startsWith('xpath')) {
+          path = sel;
+        }
+      }
+    }
+    if (path && !path.startsWith('xpath') && !path.startsWith('xpath/')) {
+      path = 'xpath' + path;
+    }
+    if (!path) {
+      path = 'xpath//*';
+    }
+
+    // Получаем name из разных источников
+    let name = (step.name || '').trim();
+    if (!name) {
+      name = extractNameFromSelectors(step.selectors);
+    }
+    if (!name && step.path) {
+      const dataTestMatch = step.path.match(/data-test=['"]([^'"]+)['"]/);
+      if (dataTestMatch) {
+        const parts = dataTestMatch[1].split('::');
+        name = parts[parts.length - 1] || dataTestMatch[1];
+      }
+    }
+    
     const value = step.value || '';
     const text = step.text || '';
-    const nextStep = steps[idx + 1];
 
-    const pushStep = (desc, varName, action) => {
-      lines.push(`    with allure.step("${pyEscape(desc)}"):`);
-      lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
-      lines.push(`        ${action}`);
-      lines.push('');
-    };
-
+    // === CLICK ===
     if (type === 'click') {
-      let label, varName;
       if (name) {
-        label = name;
-        varName = makeVarName(name);
-        const desc = `Нажать на элемент '${label}'`;
-        pushStep(desc, varName, `${varName}.click()`);
-        return;
+        // Определяем тип элемента
+        const isButtonElement = isButton(step);
+        let varName;
+        let stepDesc;
+        
+        if (isButtonElement) {
+          // Для кнопок используем суффикс _button
+          varName = makeVarName(name, 'button');
+          stepDesc = `Нажать кнопку '${name}'`;
+        } else {
+          // Для обычных элементов используем суффикс _element
+          varName = makeVarName(name, 'element');
+          stepDesc = `Нажать на элемент '${name}'`;
+        }
+        
+        lines.push(`    with allure.step("${pyEscape(stepDesc)}"):`);
+        lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
+        lines.push(`        ${varName}.click()`);
+        lines.push('');
       } else {
-        const xpathLabel = rawPath || path.replace(/^xpath/i, '');
+        const xpathLabel = path.replace(/^xpath/i, '');
         const desc = `Нажать на элемент по xpath '${xpathLabel}'`;
-        pushStep(desc, 'element', `element.click()`);
-        return;
+        lines.push(`    with allure.step("${pyEscape(desc)}"):`);
+        lines.push(`        element = page_with_auth.locator("${pyEscape(path)}")`);
+        lines.push(`        element.click()`);
+        lines.push('');
       }
+      continue;
     }
 
+    // === CHANGE ===
     if (type === 'change') {
       const desc = `Заполнить поле значением '${value}'`;
-      const varName = 'input_field';
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
-      lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
-      lines.push(`        ${varName}.fill("${pyEscape(value)}")`);
+      lines.push(`        input_field = page_with_auth.locator("${pyEscape(path)}")`);
+      lines.push(`        input_field.fill("${pyEscape(value)}")`);
       lines.push('');
-      return;
+      continue;
     }
 
+    // === waitForElement ===
     if (type === 'waitForElement') {
+      let label = name || text || 'элемент';
+      if ((label === 'элемент' || !label) && step.selectors) {
+        const extracted = extractNameFromSelectors(step.selectors);
+        if (extracted) label = extracted;
+      }
+      if ((label === 'элемент' || !label) && step.path) {
+        const dataTestMatch = step.path.match(/data-test=['"]([^'"]+)['"]/);
+        if (dataTestMatch) {
+          const parts = dataTestMatch[1].split('::');
+          label = parts[parts.length - 1] || dataTestMatch[1];
+        }
+      }
+      if (!label || label === 'элемент') {
+        label = value || text || 'элемент';
+      }
+      
       const assertionType = step.assertionType || 'visible';
-      const label = name || text || 'элемент';
-      const descFn = ASSERTION_DESC[assertionType] || ASSERTION_DESC.visible;
-      const desc = descFn(label, value || text);
       const varName = makeVarName(label, 'element');
+      
+      let desc;
+      switch (assertionType) {
+        case 'text':
+          desc = `Проверить текст элемента «${label}»: «${text || value}»`;
+          break;
+        case 'value':
+          desc = `Проверить значение поля «${label}»: «${value || text}»`;
+          break;
+        case 'enabled':
+          desc = `Проверить, что элемент «${label}» доступен (enabled)`;
+          break;
+        case 'disabled':
+          desc = `Проверить, что элемент «${label}» недоступен (disabled)`;
+          break;
+        case 'notExists':
+          desc = `Проверить, что элемент «${label}» отсутствует на странице`;
+          break;
+        case 'exists':
+        case 'visible':
+        default:
+          desc = `Проверить, что элемент «${label}» присутствует на странице`;
+      }
+      
       lines.push(`    with allure.step("${pyEscape(desc)}"):`);
       lines.push(`        ${varName} = page_with_auth.locator("${pyEscape(path)}")`);
+      
       switch (assertionType) {
         case 'text':
           lines.push(`        expect(${varName}).to_have_text("${pyEscape(text || value)}")`);
@@ -2753,9 +3276,10 @@ function generatePythonCode(recording) {
           lines.push(`        expect(${varName}).to_be_visible()`);
       }
       lines.push('');
-      return;
+      continue;
     }
 
+    // === KEYBOARD ===
     if (type === 'keyDown' || type === 'keyUp') {
       const key = step.key || '';
       if (type === 'keyDown' && key) {
@@ -2763,21 +3287,22 @@ function generatePythonCode(recording) {
         lines.push(`        page_with_auth.keyboard.press("${pyEscape(key)}")`);
         lines.push('');
       }
-      return;
+      continue;
     }
 
+    // === requestAssertion ===
     if (type === 'requestAssertion') {
       const method = (step.method || 'GET').toUpperCase();
       const url = step.url || '';
       lines.push(`    with allure.step("${pyEscape('Проверка запроса ' + method + ' ' + url)}"):`);
       lines.push(`        pass  # TODO: реализовать проверку запроса`);
       lines.push('');
-      return;
+      continue;
     }
 
     lines.push(`    # TODO: неподдерживаемый шаг типа ${type}`);
     lines.push('');
-  });
+  }
 
   return lines.join('\n');
 }
