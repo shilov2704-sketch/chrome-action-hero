@@ -343,6 +343,11 @@ function handleClick(event) {
     url: window.location.href
   };
 
+  if (noDataTestIdMode) {
+    const txt = getSmartElementText(target);
+    if (txt) clickEvent.elementText = txt;
+  }
+
   recordEvent(clickEvent);
 }
 
@@ -373,6 +378,11 @@ function handleChange(event) {
     target: 'main',
     url: window.location.href
   };
+
+  if (noDataTestIdMode) {
+    const txt = getSmartElementText(target);
+    if (txt) changeEvent.elementText = txt;
+  }
 
   recordEvent(changeEvent);
 }

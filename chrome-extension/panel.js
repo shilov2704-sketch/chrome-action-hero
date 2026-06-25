@@ -663,7 +663,7 @@ async function startRecording() {
       badge = document.createElement('span');
       badge.id = 'recordingNoDataTestIdBadge';
       badge.className = 'no-datatestid-badge';
-      badge.textContent = '⚡ Без data-testid';
+      badge.textContent = '🧠 Умная запись';
       badge.style.marginLeft = '8px';
       recordingIndicator.parentElement.insertBefore(badge, recordingIndicator.nextSibling);
     }
@@ -1040,7 +1040,7 @@ function renderRecordingsList() {
         </div>
         <div class="recording-card-meta">
           ${folderName ? `<span class="folder-badge">📁 ${folderName}</span>` : ''}
-          ${recording.noDataTestId ? '<span class="no-datatestid-badge">⚡ Без data-testid</span>' : ''}
+          ${recording.noDataTestId ? '<span class="no-datatestid-badge">🧠 Умная запись</span>' : ''}
           <span>📝 ${recording.steps.length} шагов</span>
           <span>📅 ${new Date(recording.createdAt).toLocaleDateString('ru-RU')}</span>
         </div>
@@ -1749,7 +1749,7 @@ function renderPlaybackView() {
       badge = document.createElement('span');
       badge.id = 'noDataTestIdBadge';
       badge.className = 'no-datatestid-badge';
-      badge.textContent = '⚡ Без data-testid';
+      badge.textContent = '🧠 Умная запись';
       nameEl.parentElement.insertBefore(badge, nameEl.nextSibling);
     }
   } else if (badge) {
