@@ -343,11 +343,6 @@ function handleClick(event) {
     url: window.location.href
   };
 
-  if (noDataTestIdMode) {
-    const txt = getSmartElementText(target);
-    if (txt) clickEvent.elementText = txt;
-  }
-
   recordEvent(clickEvent);
 }
 
@@ -378,11 +373,6 @@ function handleChange(event) {
     target: 'main',
     url: window.location.href
   };
-
-  if (noDataTestIdMode) {
-    const txt = getSmartElementText(target);
-    if (txt) changeEvent.elementText = txt;
-  }
 
   recordEvent(changeEvent);
 }
@@ -650,86 +640,295 @@ function findInteractiveElementNoDataTest(element) {
   return element;
 }
 
-function getSmartElementText(element) {
-  let t = getDirectTextContent(element);
-  if (!t) t = (element.textContent || '').trim();
-  if (!t) {
-    const tag = element.tagName?.toLowerCase();
-    if (tag === 'input' || tag === 'textarea') {
-      t = element.getAttribute('placeholder') || '';
-      if (!t && element.id) {
-        const lbl = document.querySelector(`label[for='${element.id}']`);
-        if (lbl) t = (lbl.textContent || '').trim();
-      }
-    }
-  }
-  return (t || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-}
-
-function generateSmartXPath(element) {
-  const tag = element.tagName?.toLowerCase();
-  if (!tag) return null;
-
-  // Strategy 1: unique text-based xpath
-  const directText = getDirectTextContent(element);
-  if (directText && directText.length > 0 && directText.length < 120) {
-    const esc = escapeXPathString(directText);
-    const candidates = [
-      `//${tag}[normalize-space(text())=${esc}]`,
-      `//*[normalize-space(text())=${esc}]`,
-      `//${tag}[normalize-space(.)=${esc}]`,
-      `//*[normalize-space(.)=${esc}]`,
-    ];
-    for (const xp of candidates) {
-      if (isXPathUnique(xp)) return `xpath${xp}`;
-    }
-  }
-
-  // For inputs/textarea without direct text, try placeholder
-  if (tag === 'input' || tag === 'textarea') {
-    const ph = element.getAttribute('placeholder');
-    if (ph) {
-      const xp = `//${tag}[@placeholder=${escapeXPathString(ph)}]`;
-      if (isXPathUnique(xp)) return `xpath${xp}`;
-    }
-  }
-
-  // Strategy 2: unique data-id
-  const dataId = element.getAttribute('data-id');
-  if (dataId) {
-    const candidates = [
-      `//*[@data-id='${dataId}']`,
-      `//${tag}[@data-id='${dataId}']`,
-    ];
-    for (const xp of candidates) if (isXPathUnique(xp)) return `xpath${xp}`;
-  }
-
-  // Strategy 3: unique data-testid (or data-test)
-  const attrName = element.hasAttribute('data-testid')
-    ? 'data-testid'
-    : (element.hasAttribute('data-test') ? 'data-test' : null);
-  if (attrName) {
-    const val = element.getAttribute(attrName);
-    const candidates = [
-      `//*[@${attrName}='${val}']`,
-      `//${tag}[@${attrName}='${val}']`,
-    ];
-    for (const xp of candidates) if (isXPathUnique(xp)) return `xpath${xp}`;
-  }
-
-  // Fallback: positional
-  return generatePositionalXPath(element);
-}
-
 function generateSelectorsNoDataTest(element, eventType = null) {
   const selectors = [];
-  const xpath = generateSmartXPath(element);
+  
+  // Always generate the text-based XPath
+  const xpath = generateXPathNoDataTest(element, eventType);
   if (xpath) selectors.push([xpath]);
+  
+  // Also generate text selector for replay fallback
   const textSelector = generateTextSelector(element);
   if (textSelector) selectors.push([textSelector]);
+  
   return selectors;
 }
 
+function generateXPathNoDataTest(element, eventType = null) {
+  const tagName = element.tagName?.toLowerCase();
+  if (!tagName) return null;
+  
+  // Strategy 0: Element has data-tip attribute
+  const dataTip = element.getAttribute('data-tip');
+  if (dataTip) {
+    let xpath = `//*[@data-tip='${dataTip}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+  }
+  
+  // Strategy 0b: Element has data-id attribute
+  const dataId = element.getAttribute('data-id');
+  if (dataId) {
+    let xpath = `//*[@data-id='${dataId}']`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+   }
+   
+   // Strategy 0b2: Specific div with exact class 'css-tnrbt8 e1mf4tm34'
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass === 'css-tnrbt8 e1mf4tm34') {
+       let xpath = `//div[@class='css-tnrbt8 e1mf4tm34']`;
+       if (isXPathUnique(xpath)) return `xpath${xpath}`;
+     }
+   }
+   
+   // Strategy 0b2a: Div with specific full class + direct text
+   // For classes: 'css-1rgon6j e6qto093', 'css-lnmb84 ebuwe7z2'
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     const exactClassMatches = ['css-1rgon6j e6qto093', 'css-lnmb84 ebuwe7z2'];
+     if (exactClassMatches.includes(elClass)) {
+       const dt = (element.textContent || '').trim();
+       if (dt) {
+         const escapedText = escapeXPathString(dt);
+         let xpath = `//div[contains(@class, '${elClass}') and normalize-space(text())=${escapedText}]`;
+         if (isXPathUnique(xpath)) return `xpath${xpath}`;
+       }
+     }
+   }
+   
+   // Strategy 0b2b: Div with class 'css-tytyda e1snk6cc2' inside label with span text
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass === 'css-tytyda e1snk6cc2' || elClass === 'css-1scjdh6 e1snk6cc2') {
+       // Walk up to find a parent <label>
+       let labelEl = element.closest('label');
+       if (labelEl) {
+         const spanInLabel = labelEl.querySelector('span');
+         if (spanInLabel) {
+           const spanText = (spanInLabel.textContent || '').trim();
+           if (spanText) {
+             const escapedText = escapeXPathString(spanText);
+             let xpath = `//label[contains(., ${escapedText})]//div[contains(@class, 'css-tytyda')]`;
+             if (isXPathUnique(xpath)) return `xpath${xpath}`;
+           }
+         }
+       }
+     }
+   }
+   
+   // Strategy 0b3: Sibling div with title attribute - //div[@title='..']/..//div[@class='...']
+   if (tagName === 'div') {
+     const elClass = element.getAttribute('class') || '';
+     if (elClass) {
+       // Walk up to find a parent whose child has a title attribute
+       let parent = element.parentElement;
+       let depth = 0;
+       while (parent && parent !== document.body && depth < 4) {
+         const titledChild = parent.querySelector(':scope > div[title]');
+         if (titledChild && titledChild !== element) {
+           const titleVal = titledChild.getAttribute('title');
+           if (titleVal) {
+             let xpath = `//div[@title='${titleVal}']/..//div[@class='${elClass}']`;
+             if (isXPathUnique(xpath)) return `xpath${xpath}`;
+           }
+         }
+         parent = parent.parentElement;
+         depth++;
+       }
+     }
+   }
+
+  // Strategy 0c: Check for sibling or child span with color+type+class attributes (only when span has NO text)
+  if (tagName === 'div' || tagName === 'span' || tagName === 'p') {
+    // Check in current element AND parent element for span[color][type]
+    const candidates = [element, element.parentElement].filter(Boolean);
+    for (const container of candidates) {
+      const spanWithAttrs = container.querySelector('span[color][type]');
+      if (spanWithAttrs) {
+        const spanText = (spanWithAttrs.textContent || '').trim();
+        // Only use this strategy when span has no visible text
+        if (!spanText) {
+          const color = spanWithAttrs.getAttribute('color');
+          const type = spanWithAttrs.getAttribute('type');
+          const spanClass = spanWithAttrs.getAttribute('class');
+          const targetTag = container === element ? tagName : container.tagName.toLowerCase();
+          if (spanClass) {
+            let xpath = `//span[@color='${color}' and @type='${type}' and @class='${spanClass}']/parent::${targetTag}`;
+            if (isXPathUnique(xpath)) return `xpath${xpath}`;
+          }
+          let xpath = `//span[@color='${color}' and @type='${type}']/parent::${targetTag}`;
+          if (isXPathUnique(xpath)) return `xpath${xpath}`;
+        }
+      }
+    }
+  }
+  
+  // Strategy 0d: Element inside a data-react-beautiful-dnd-draggable container
+  {
+    let draggableAncestor = element.closest('[data-react-beautiful-dnd-draggable]');
+    if (draggableAncestor) {
+      // Find the child div that has direct text (the label div)
+      const allChildren = draggableAncestor.querySelectorAll('div');
+      let textDiv = null;
+      for (const d of allChildren) {
+        const dt = getDirectTextContent(d);
+        if (dt && dt.length > 0 && dt.length < 80) {
+          textDiv = d;
+          break;
+        }
+      }
+      if (textDiv) {
+        const textDivClass = textDiv.getAttribute('class') || '';
+        const labelText = getDirectTextContent(textDiv);
+        const escapedText = escapeXPathString(labelText);
+        // Calculate child index of the clicked element relative to the textDiv
+        // Walk up from element to find which child of textDiv's parent we are
+        // Find which direct child of textDiv the clicked element falls under
+        let child = element;
+        while (child && child.parentElement !== textDiv && child !== document.body) {
+          child = child.parentElement;
+        }
+        if (child && child.parentElement === textDiv) {
+          const textDivChildren = Array.from(textDiv.children);
+          const childIdx = textDivChildren.indexOf(child) + 1;
+          let xpath;
+          if (textDivClass) {
+            xpath = `//div[text()=${escapedText} and @class='${textDivClass}']/${child.tagName.toLowerCase()}[${childIdx}]`;
+          } else {
+            xpath = `//div[text()=${escapedText}]/${child.tagName.toLowerCase()}[${childIdx}]`;
+          }
+          if (isXPathUnique(xpath)) return `xpath${xpath}`;
+        }
+      }
+    }
+  }
+  
+  // Strategy 1: Input/textarea/select — handle EARLY to avoid text-content contamination
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return generateXPathForInput(element);
+  }
+  
+  // Strategy 2: Element has visible direct text (buttons, links, spans, divs)
+  const directText = getDirectTextContent(element);
+  
+  if (directText && directText.length > 0 && directText.length < 80) {
+    const escapedText = escapeXPathString(directText);
+    
+    // If element also has a meaningful class, combine text + class for robustness
+    const cls = element.getAttribute('class');
+    const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+    
+    if (mainClass) {
+      let xpath = `//${tagName}[contains(@class, '${mainClass}') and normalize-space(text())=${escapedText}]`;
+      if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    }
+    
+    let xpath = `//${tagName}[normalize-space(text())=${escapedText}]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    
+    // Not unique — add parent context
+    xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 3: Element contains nested span/text (e.g. <a> with <span>Text</span>)
+  const nestedTextEl = element.querySelector('span, p, label, h1, h2, h3, h4, h5, h6');
+  if (nestedTextEl) {
+    const spanText = (nestedTextEl.textContent || '').trim();
+    if (spanText && spanText.length > 0 && spanText.length < 80) {
+      const nestedTag = nestedTextEl.tagName.toLowerCase();
+      const escapedText = escapeXPathString(spanText);
+      
+      // If element has a class, combine class + nested text
+      const cls = element.getAttribute('class');
+      const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+      
+      if (mainClass) {
+        let xpath = `//${tagName}[contains(@class, '${mainClass}') and .//${nestedTag}[contains(text(), ${escapedText})]]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
+      let xpath = `//${tagName}[.//${nestedTag}[normalize-space(text())=${escapedText}]]`;
+      if (!isXPathUnique(xpath)) {
+        xpath = addParentContext(element, xpath);
+      }
+      return `xpath${xpath}`;
+    }
+  }
+  
+  // Strategy 4: aria-label or title
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) {
+    let xpath = `//${tagName}[@aria-label=${escapeXPathString(ariaLabel)}]`;
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  const title = element.getAttribute('title');
+  if (title) {
+    let xpath = `//${tagName}[@title=${escapeXPathString(title)}]`;
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 5: Full textContent (includes nested)
+  const fullText = (element.textContent || '').trim();
+  if (fullText && fullText.length > 0 && fullText.length < 80) {
+    const escapedText = escapeXPathString(fullText);
+    let xpath = `//${tagName}[normalize-space()=${escapedText}]`;
+    if (!isXPathUnique(xpath)) xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 6: SVG identification
+  const svg = element.querySelector('svg') || (tagName === 'svg' ? element : null);
+  if (svg) {
+    return generateXPathBySvg(element, svg);
+  }
+  
+  // Strategy 7: Element has a class — use class + positional child index
+  const cls = element.getAttribute('class');
+  const mainClass = cls ? cls.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+  if (mainClass) {
+    // Try to find parent with text to provide context
+    let parent = element.parentElement;
+    let depth = 0;
+    while (parent && parent !== document.body && depth < 4) {
+      const parentText = getDirectTextContent(parent);
+      if (parentText && parentText.length > 0 && parentText.length < 80) {
+        const parentTag = parent.tagName.toLowerCase();
+        const escapedParentText = escapeXPathString(parentText);
+        // Calculate child index
+        const siblings = Array.from(parent.children);
+        const idx = siblings.indexOf(element) + 1;
+        let xpath = `//${parentTag}[normalize-space(text())=${escapedParentText}]/${tagName}[${idx}]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
+      const parentFullText = (parent.textContent || '').trim();
+      const parentClass = parent.getAttribute('class');
+      const parentMainClass = parentClass ? parentClass.split(/\s+/).find(c => c.length > 3 && !c.startsWith('_')) : null;
+      if (parentMainClass && parentFullText && parentFullText.length < 60) {
+        const parentTag = parent.tagName.toLowerCase();
+        const siblings = Array.from(parent.children);
+        const idx = siblings.indexOf(element) + 1;
+        let xpath = `//${parentTag}[contains(@class, '${parentMainClass}')]/${tagName}[${idx}]`;
+        if (isXPathUnique(xpath)) return `xpath${xpath}`;
+      }
+      
+      parent = parent.parentElement;
+      depth++;
+    }
+    
+    let xpath = `//${tagName}[contains(@class, '${mainClass}')]`;
+    if (isXPathUnique(xpath)) return `xpath${xpath}`;
+    xpath = addParentContext(element, xpath);
+    return `xpath${xpath}`;
+  }
+  
+  // Strategy 8: Positional fallback
+  return generatePositionalXPath(element);
+}
 
 function getDirectTextContent(element) {
   // Get only direct text nodes (not nested element text)
