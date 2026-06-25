@@ -2707,11 +2707,25 @@ function generatePythonCode(recording) {
         'исполнитель': 'executor',
         'исполнителя': 'executor',
         'исполнители': 'executors',
-        'вид': 'work',
-        'вида': 'work',
-        'работ': 'work',
+        'вид_работ': 'work_type',
+        'виды_работ': 'work_types',
+        'вид_работы': 'work_type',
+        'вид': 'type',
+        'вида': 'type',
+        'виды': 'types',
+        'работ': 'works',
         'работы': 'work',
         'работа': 'work',
+        'тест': 'test',
+        'тесты': 'tests',
+        'теста': 'test',
+        'тестов': 'tests',
+        'тестам': 'tests',
+        'тестах': 'tests',
+        'тестовый': 'test',
+        'тестовая': 'test',
+        'тестовое': 'test',
+        'тестовые': 'test',
         'описание': 'description',
         'описания': 'description',
         'адрес': 'address',
@@ -3013,10 +3027,14 @@ function generatePythonCode(recording) {
       let cleaned = String(base || '').trim();
       
       // Заменяем сложные составные слова целиком (сначала самые длинные)
+      // Используем lookaround для кириллических границ слов, чтобы короткие
+      // предлоги ("с", "в", "о", "и" и т.п.) не матчились внутри других слов.
       const sortedKeys = Object.keys(TRANSLATE_DICT).sort((a, b) => b.length - a.length);
       let translated = cleaned;
       for (const rus of sortedKeys) {
-        const regex = new RegExp(rus, 'gi');
+        // Экранируем спецсимволы (в ключах их нет, но на всякий случай)
+        const escaped = rus.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`(?<![а-яёa-z0-9_])${escaped}(?![а-яёa-z0-9_])`, 'gi');
         if (regex.test(translated)) {
           translated = translated.replace(regex, TRANSLATE_DICT[rus]);
         }
